@@ -14,6 +14,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
+      // `server-only` throws on import outside a React Server Component, which is the
+      // point of it — and which makes the modules that use it untestable here. Stubbing
+      // the specifier gives the tests access; the guarantee itself is enforced by the
+      // Next build and by no-service-key.test.ts against the real bundles.
+      'server-only': path.resolve(__dirname, 'tests/stubs/server-only.ts'),
     },
   },
 });

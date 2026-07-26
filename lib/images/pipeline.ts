@@ -1,9 +1,17 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import sharp from 'sharp';
 
 import { createAdminClient } from '@/lib/supabase/admin';
-import { DISPLAY_BUCKET, ORIGINALS_BUCKET, displayPath, originalPath } from '@/lib/images/storage';
+import {
+  DISPLAY_BUCKET,
+  ORIGINALS_BUCKET,
+  deleteStoredObjects,
+  displayPath,
+  originalPath,
+} from '@/lib/images/storage';
 
 /**
  * T027 — the image pipeline (FR-007, FR-009, FR-010, FR-011).
@@ -34,6 +42,12 @@ export interface ProcessedPhoto {
   blurPlaceholder: string;
   width: number;
   height: number;
+}
+
+/** A processed photo tagged with its position in the batch it came from, so the caller can
+ *  reunite it with per-photo metadata (alt text) after failures have shifted the indices. */
+export interface ProcessedPhotoWithSource extends ProcessedPhoto {
+  sourceIndex: number;
 }
 
 export interface PhotoInput {
@@ -137,4 +151,59 @@ export async function processAndStorePhoto(
     const reason = error instanceof Error ? error.message : 'Unknown image processing failure.';
     return { ok: false, filename: input.filename, reason };
   }
+}
+
+/**
+ * T044 — process a batch, surviving individual failures.
+ *
+ * FR-012 requires one bad file to leave the rest of the upload alone, and FR-013a requires
+ * the design to be abandoned only when *every* photo fails. Both need the same shape:
+ * successes and failures side by side, nothing thrown.
+ *
+ * Photos are processed sequentially rather than with `Promise.all`. `sharp` decoding a
+ * 25 MB HEIC is memory-hungry, and eight of them at once is how a serverless function
+ * gets OOM-killed mid-upload — which is precisely the interrupted upload this task exists
+ * to make survivable.
+ */
+export async function processPhotoBatch(
+  designId: string,
+  inputs: readonly PhotoInput[],
+): Promise<{
+  processed: ProcessedPhotoWithSource[];
+  failures: Array<{ filename: string; reason: string }>;
+}> {
+  const processed: ProcessedPhotoWithSource[] = [];
+  const failures: Array<{ filename: string; reason: string }> = [];
+
+  for (const [sourceIndex, input] of inputs.entries()) {
+    const photoId = randomUUID();
+    const result = await processAndStorePhoto(designId, photoId, input);
+    if (result.ok) processed.push({ ...result.photo, sourceIndex });
+    else failures.push({ filename: result.filename, reason: result.reason });
+  }
+
+  return { processed, failures };
+}
+
+/**
+ * T044 — undo stored objects when the design they belong to is not going to exist.
+ *
+ * The interrupted-upload story turns on ordering. Files are written before the `design`
+ * row, because the storage path contains the design id. So every path that abandons the
+ * create — no photo processed, the insert rejected, the request cancelled — has to remove
+ * what was already written, or the bucket accumulates orphans that no row references and
+ * nothing will ever clean up.
+ *
+ * Failures here are collected, not thrown: the caller is already on an error path and a
+ * storage hiccup must not mask the original reason the design was abandoned.
+ */
+export async function discardProcessedPhotos(
+  photos: readonly ProcessedPhoto[],
+): Promise<{ removed: number; errors: string[] }> {
+  if (photos.length === 0) return { removed: 0, errors: [] };
+
+  return deleteStoredObjects(
+    photos.map((p) => p.originalPath),
+    photos.map((p) => p.displayPath),
+  );
 }

@@ -42,10 +42,21 @@ export function DesignGridTile({
   photo,
   sizes = '(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, 50vw',
   priority = false,
+  unoptimized = false,
 }: {
   photo: GridPhoto | null;
   sizes?: string;
   priority?: boolean;
+  /**
+   * Required for the studio's `/studio/img` source, not an optimisation choice.
+   *
+   * Next's image optimiser fetches `src` server-side, without the visitor's cookies. That
+   * is fine for the public `/img` route, which is deliberately unauthenticated — but the
+   * studio route requires a session, so an optimised fetch would arrive anonymous and 404.
+   * Unoptimised means the browser requests it directly, with cookies, and the blur
+   * placeholder and reserved dimensions still work.
+   */
+  unoptimized?: boolean;
 }) {
   if (!photo) {
     // FR-013a makes a photoless design impossible, so this is defence in depth rather
@@ -64,6 +75,7 @@ export function DesignGridTile({
         placeholder="blur"
         blurDataURL={photo.blurDataURL}
         priority={priority}
+        unoptimized={unoptimized}
         className="h-full w-full object-cover"
       />
     </div>

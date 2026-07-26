@@ -32,6 +32,18 @@ export function displayPath(designId: string, photoId: string): string {
 }
 
 /**
+ * The designer's profile photo (FR-029).
+ *
+ * Lives in the `display` bucket under a reserved `profile/` prefix, keyed by owner id so a
+ * replacement overwrites rather than accumulates. The prefix cannot collide with a design's
+ * folder — design folders are named by uuid, and `deleteDesignFiles` lists by that uuid, so
+ * deleting a design can never sweep the avatar away with it.
+ */
+export function profilePhotoPath(ownerId: string): string {
+  return `profile/${ownerId}.webp`;
+}
+
+/**
  * Signs a display-variant object for delivery.
  *
  * **Callers must have already confirmed the parent design is published.** This function
@@ -48,6 +60,39 @@ export async function signDisplayUrl(path: string): Promise<string | null> {
 
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
+}
+
+/**
+ * Removes specific objects from both buckets.
+ *
+ * Used on the abandon path when a create fails after files were written, and when a single
+ * photo is removed from an existing design. Deleting a design as a whole uses
+ * `deleteDesignFiles` below, which sweeps the prefix rather than naming each object —
+ * that one must not depend on the `photo` rows, since they have already cascaded away.
+ */
+export async function deleteStoredObjects(
+  originalPaths: readonly string[],
+  displayPaths: readonly string[],
+): Promise<{ removed: number; errors: string[] }> {
+  const admin = createAdminClient();
+  const errors: string[] = [];
+  let removed = 0;
+
+  for (const [bucket, paths] of [
+    [ORIGINALS_BUCKET, originalPaths],
+    [DISPLAY_BUCKET, displayPaths],
+  ] as const) {
+    if (paths.length === 0) continue;
+
+    const { error } = await admin.storage.from(bucket).remove([...paths]);
+    if (error) {
+      errors.push(`${bucket}: ${error.message}`);
+      continue;
+    }
+    removed += paths.length;
+  }
+
+  return { removed, errors };
 }
 
 /**

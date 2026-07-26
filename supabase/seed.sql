@@ -18,10 +18,19 @@ declare
 begin
   -- auth.users is normally written by GoTrue. Inserting directly is acceptable for a
   -- local seed and nowhere else.
+  -- The token columns below are set to '' rather than left NULL, and that is not
+  -- cosmetic. GoTrue reads them into Go strings, which cannot hold NULL, so a user row
+  -- seeded without them makes every sign-in fail with a 500 and the opaque message
+  -- "Database error querying schema" — while the row itself looks entirely correct in
+  -- psql. Inserting into auth.users by hand is the only way to hit this; GoTrue always
+  -- writes empty strings when it creates a user itself.
   insert into auth.users (
     id, instance_id, aud, role, email, encrypted_password,
     email_confirmed_at, created_at, updated_at,
-    raw_app_meta_data, raw_user_meta_data
+    raw_app_meta_data, raw_user_meta_data,
+    confirmation_token, recovery_token,
+    email_change, email_change_token_new, email_change_token_current,
+    phone_change, phone_change_token, reauthentication_token
   )
   values (
     v_owner_id,
@@ -32,7 +41,10 @@ begin
     crypt('boka-local-dev', gen_salt('bf')),   -- local only
     now(), now(), now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
-    '{}'::jsonb
+    '{}'::jsonb,
+    '', '',
+    '', '', '',
+    '', '', ''
   )
   on conflict (id) do nothing;
 

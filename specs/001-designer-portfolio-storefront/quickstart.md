@@ -24,8 +24,10 @@ How to stand the feature up locally and prove it works. Interface details live i
 |---|---|
 | **T009 — HEIC decode** | **PASS** on darwin/arm64: `sharp` 0.35.3, libvips 8.18.3, HEIF decode available. Run `npm run verify:heic` on the **deploy target** too — that half is still unverified. |
 | **T010 — `pg_cron`** | **PASS** locally: present in `pg_available_extensions`. Confirm on the hosted project before T071. |
-| Migrations applied | **PASS.** All 10 applied cleanly from an empty database, plus seed. |
+| Migrations applied | **PASS.** All 11 applied cleanly from an empty database, plus seed. |
 | Principle II enforcement | **VERIFIED** — see below. |
+| Owner access (FR-003) | **PASS** as of migration `0011` — see the correction below. It did **not** pass before it. |
+| US1 end-to-end | **PASS** on desktop Chromium *and* iPhone 14 WebKit: `tests/e2e/designer-archive.spec.ts`, 3 specs. |
 
 #### What was actually exercised against a live database
 
@@ -47,10 +49,47 @@ Also confirmed: `updated_at` advances on update while `created_at` is preserved;
 rename; `increment_design_view` increments a published design and silently ignores a draft slug
 without revealing which it was.
 
+#### Correction found while building US1 (2026-07-26)
+
+The verification above is accurate and it was **not sufficient**. It established that anonymous
+callers are refused and that the public views are gated — the two things the design was worried
+about. Nobody asked the opposite question, and the answer was that the designer could not read or
+write a single row of her own archive.
+
+`authenticated` and `service_role` held no `SELECT`, `INSERT`, `UPDATE` or `DELETE` on any base
+table. Supabase's permissive default privileges are registered `FOR ROLE supabase_admin`, but
+migrations run as `postgres`, whose `public`-schema defaults grant only `TRUNCATE`, `REFERENCES` and
+`TRIGGER`. RLS policies were in place and could do nothing, because **a policy filters rows a caller
+is already privileged to touch — it cannot grant a privilege that was never given.**
+
+Fixed in `0011_grants_authenticated.sql`, which asserts both directions: `anon` still holds no DML,
+**and** the owner does. To re-check by hand:
+
+```sh
+docker exec supabase_db_Boka psql -U postgres -d postgres -c \
+  "select table_name, grantee, string_agg(privilege_type, ',' order by privilege_type)
+     from information_schema.role_table_grants
+    where table_name in ('designer','category','design','photo')
+      and grantee in ('anon','authenticated','service_role')
+    group by table_name, grantee order by table_name, grantee;"
+```
+
+`anon` must not appear in the output at all.
+
+A second local-only defect surfaced at the same time: the seed inserted `auth.users` with NULL token
+columns, so every sign-in failed with a 500 and the message `Database error querying schema`. GoTrue
+reads those columns into Go strings, which cannot hold NULL. `seed.sql` now writes `''` for all
+eight. This only affects hand-written `auth.users` inserts — the hosted account provisioned in T081
+goes through GoTrue and is unaffected.
+
 **Local port note**: the 543xx defaults were taken by another Supabase project, so this stack runs on
 **55321** (API), 55322 (db), 55323 (Studio). See `supabase/config.toml`.
 
 Local sign-in: `designer@boka.local` / `boka-local-dev`.
+
+**Running the tests locally**: integration tests read `.env.local` themselves and skip with a warning
+if no stack is configured. End-to-end tests need browsers (`npx playwright install chromium webkit`)
+and start `npm run dev` themselves.
 
 ### Verify HEIC support first
 

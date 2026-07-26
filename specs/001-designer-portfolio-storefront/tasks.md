@@ -102,30 +102,55 @@ them, and finds the identical archive from any other device.
 **Independent test**: Sign in on a phone, upload a design with three photos and full metadata, sign in
 on a second device, confirm parity. Edit one field and delete a second design; both persist.
 
-- [ ] T032 [US1] Build the dashboard grid of the owner's designs, draft and published visually distinct, in `app/(designer)/studio/page.tsx`
-- [ ] T033 [P] [US1] Build the empty-archive onboarding prompt (FR-033) in `components/studio/EmptyState.tsx`
-- [ ] T034 [US1] Build the new-design form with title, category, collection, notes, and public description in `app/(designer)/studio/designs/new/page.tsx`
-- [ ] T035 [US1] Build the photo uploader with camera/library selection and progress indication (FR-005, FR-006, FR-008) in `components/studio/PhotoUploader.tsx`
-- [ ] T036 [P] [US1] Build the optional per-photo alt-text input (FR-012a) in `components/studio/AltTextField.tsx`
-- [ ] T037 [US1] Implement `createDesign` — reject the design outright if no photo processes successfully (FR-013a), else persist the record and store originals plus display variants — in `lib/data/designer-designs.ts`
-- [ ] T038 [US1] Build the edit page, with `slug` immutable on rename (FR-023b), in `app/(designer)/studio/designs/[id]/page.tsx`
-- [ ] T039 [US1] Implement delete: remove the row, cascade `photo` rows, and **explicitly delete both `originals/{design_id}/` and `display/{design_id}/` prefixes** (FR-019) in `lib/data/designer-designs.ts`
-- [ ] T040 [US1] Build the delete confirmation stating that inquiries are kept (FR-044) in `components/studio/DeleteDesignDialog.tsx`
-- [ ] T041 [P] [US1] Build filter controls (category, collection) and sort controls (newest, oldest, title) as independent dimensions (FR-018) in `components/studio/FilterBar.tsx`
-- [ ] T042 [P] [US1] Build category management, blocking deletion of a category still in use, in `app/(designer)/studio/categories/page.tsx`
-- [ ] T043 [P] [US1] Build profile settings for name, bio, and profile photo (FR-029) in `app/(designer)/studio/settings/page.tsx`
-- [ ] T044 [US1] Handle interrupted uploads — no broken record, retry without duplicating (FR-013a) — in `lib/images/pipeline.ts`
-- [ ] T045 [P] [US1] Reject unsupported types **and files over 25 MB**, naming the accepted formats and the limit, without affecting other photos in the upload (FR-012), in `lib/images/validate.ts`
-- [ ] T046 [P] [US1] Warn on session expiry rather than silently discarding unsaved entries in `components/studio/SessionGuard.tsx`
-- [ ] T047 [P] [US1] Integration test: slug is generated once and survives a rename, in `tests/integration/slug.test.ts`
-- [ ] T048 [P] [US1] Integration test: `updated_at` advances on update and `created_at` does not (FR-014), in `tests/integration/timestamps.test.ts`
-- [ ] T049 [P] [US1] Integration test: deleting a design removes both storage prefixes (FR-019), in `tests/integration/storage-cleanup.test.ts`
-- [ ] T050 [US1] E2E test: archive parity across two sessions (SC-008) in `tests/e2e/designer-archive.spec.ts`
+- [X] T032 [US1] Build the dashboard grid of the owner's designs, draft and published visually distinct, in `app/(designer)/studio/page.tsx`
+- [X] T033 [P] [US1] Build the empty-archive onboarding prompt (FR-033) in `components/studio/EmptyState.tsx`
+- [X] T034 [US1] Build the new-design form with title, category, collection, notes, and public description in `app/(designer)/studio/designs/new/page.tsx`
+- [X] T035 [US1] Build the photo uploader with camera/library selection and progress indication (FR-005, FR-006, FR-008) in `components/studio/PhotoUploader.tsx`
+- [X] T036 [P] [US1] Build the optional per-photo alt-text input (FR-012a) in `components/studio/AltTextField.tsx`
+- [X] T037 [US1] Implement `createDesign` — reject the design outright if no photo processes successfully (FR-013a), else persist the record and store originals plus display variants — in `lib/data/designer-designs.ts`
+- [X] T038 [US1] Build the edit page, with `slug` immutable on rename (FR-023b), in `app/(designer)/studio/designs/[id]/page.tsx`
+- [X] T039 [US1] Implement delete: remove the row, cascade `photo` rows, and **explicitly delete both `originals/{design_id}/` and `display/{design_id}/` prefixes** (FR-019) in `lib/data/designer-designs.ts`
+- [X] T040 [US1] Build the delete confirmation stating that inquiries are kept (FR-044) in `components/studio/DeleteDesignDialog.tsx`
+- [X] T041 [P] [US1] Build filter controls (category, collection) and sort controls (newest, oldest, title) as independent dimensions (FR-018) in `components/studio/FilterBar.tsx`
+- [X] T042 [P] [US1] Build category management, blocking deletion of a category still in use, in `app/(designer)/studio/categories/page.tsx`
+- [X] T043 [P] [US1] Build profile settings for name, bio, and profile photo (FR-029) in `app/(designer)/studio/settings/page.tsx`
+- [X] T044 [US1] Handle interrupted uploads — no broken record, retry without duplicating (FR-013a) — in `lib/images/pipeline.ts`
+- [X] T045 [P] [US1] Reject unsupported types **and files over 25 MB**, naming the accepted formats and the limit, without affecting other photos in the upload (FR-012), in `lib/images/validate.ts`
+- [X] T046 [P] [US1] Warn on session expiry rather than silently discarding unsaved entries in `components/studio/SessionGuard.tsx`
+- [X] T047 [P] [US1] Integration test: slug is generated once and survives a rename, in `tests/integration/slug.test.ts`
+- [X] T048 [P] [US1] Integration test: `updated_at` advances on update and `created_at` does not (FR-014), in `tests/integration/timestamps.test.ts`
+- [X] T049 [P] [US1] Integration test: deleting a design removes both storage prefixes (FR-019), in `tests/integration/storage-cleanup.test.ts`
+- [X] T050 [US1] E2E test: archive parity across two sessions (SC-008) in `tests/e2e/designer-archive.spec.ts`
 
 > **The notes/description split is a UI responsibility.** T034 and T038 must label the two fields
 > unmistakably — "Private notes — only you see this" against "Public description — visitors see this".
 > FR-025 gives no per-design override, so the form is the only place this can be communicated, and
 > getting it wrong is how private measurements reach the public internet.
+
+> ### ✓ US1 verified against a live stack (2026-07-26)
+>
+> All 19 tasks implemented; `typecheck`, `lint`, `build`, 11 integration tests and 3 end-to-end
+> specs pass. The archive-parity spec runs green on **both** Playwright projects — desktop
+> Chromium and iPhone 14 WebKit — which discharges the constitution's mobile-verification
+> requirement for the flows US1 touches.
+>
+> **Three defects in already-completed work were found and fixed while building on it.** Each was
+> invisible to the phase that introduced it:
+>
+> | Defect | Why it was invisible | Fix |
+> |---|---|---|
+> | `authenticated` and `service_role` held **no SELECT/INSERT/UPDATE/DELETE on any base table** — the designer could not read or write a single row. Supabase's permissive default privileges are registered `FOR ROLE supabase_admin`, but migrations run as `postgres`, whose `public`-schema defaults grant only TRUNCATE/REFERENCES/TRIGGER. | Phase 2's verification asked whether anonymous callers were *refused* and whether the views were *gated*. Both passed. Nothing asked whether the owner could still get in — the assumed failure mode of a privacy-first schema is "too open". | `0011_grants_authenticated.sql`, with assertions in both directions: anon still holds no DML, **and** the owner does. |
+> | The local seed left `auth.users` token columns NULL, so every sign-in failed with a 500 and the opaque message "Database error querying schema". | The row looks entirely correct in psql. GoTrue reads those columns into Go strings, which cannot hold NULL — and only a hand-written `auth.users` insert can produce it. | `seed.sql` now writes `''` for all eight token columns. |
+> | Playwright's `webServer` probed `/`, which has no page until T052, so the whole suite timed out before running. | Playwright treats 404 as "not ready". Nothing had run the suite yet. | Readiness now probes `/auth/sign-in`. |
+>
+> **One route was added beyond the task list**: `app/(designer)/studio/img/[photoId]/[width]/route.ts`.
+> The public `/img` route is published-gated by design (FR-009a), so it returns 404 for every draft —
+> and the dashboard is mostly drafts. Relaxing `/img` for signed-in requests was rejected: it would
+> put a conditional inside the exact gate T060 exists to protect. Two surfaces, two routes, one rule
+> each.
+>
+> **Migration numbering moved.** `0011` is now the grants migration, so Phase 5's migrations shift to
+> `0012`/`0013`/`0014` — already corrected in T064, T065 and T071 below.
 
 **Checkpoint**: US1 is independently shippable as a private catalogue.
 
@@ -176,14 +201,14 @@ designer is notified with the correct design named. Submit a malformed email and
 delivery deliberately and confirm the dashboard banner surfaces the lead. Attempt a direct data-layer
 insert with the anon key and confirm rejection.
 
-- [ ] T064 [US3] Migration for the `inquiry` table — `on delete set null`, `design_title_snapshot`, `delivery_state` enum, `read` flag (v1.1-facing, never written in v1), `(sender_hash, created_at)` index (FR-038, FR-043, FR-044) — in `supabase/migrations/0011_inquiry.sql`
-- [ ] T065 [US3] Migration for inquiry RLS: owner-only read/update/delete, **no anonymous `INSERT` and no anonymous `SELECT`** (FR-041c, FR-046), in `supabase/migrations/0012_inquiry_rls.sql`
+- [ ] T064 [US3] Migration for the `inquiry` table — `on delete set null`, `design_title_snapshot`, `delivery_state` enum, `read` flag (v1.1-facing, never written in v1), `(sender_hash, created_at)` index (FR-038, FR-043, FR-044) — in `supabase/migrations/0012_inquiry.sql`
+- [ ] T065 [US3] Migration for inquiry RLS: owner-only read/update/delete, **no anonymous `INSERT` and no anonymous `SELECT`** (FR-041c, FR-046), in `supabase/migrations/0013_inquiry_rls.sql`
 - [ ] T066 [US3] Build the inquiry form with name, email, optional message, and the hidden honeypot field (FR-036, FR-041a) in `components/public/InquiryForm.tsx`
 - [ ] T067 [P] [US3] Implement email-format validation with field-level errors (FR-037) in `lib/inquiries/validate.ts`
 - [ ] T068 [P] [US3] Implement the rate limit — 5/hour, 20/day against a **server-computed** salted `sender_hash` (FR-041) — in `lib/inquiries/rate-limit.ts`
 - [ ] T069 [US3] Build the submit route in the contract's order — honeypot → rate limit → validate → **server-side insert** → respond → deliver — in `app/(public)/d/[slug]/inquire/route.ts`
 - [ ] T070 [US3] Implement Resend delivery inside `after()` with 3 attempts and backoff (FR-040a) in `lib/inquiries/deliver.ts`
-- [ ] T071 [US3] Migration for the `pg_cron` sweep running **every 2 minutes**, retrying `pending` rows and marking exhausted ones `undelivered` (FR-040b, SC-006), in `supabase/migrations/0013_delivery_sweep.sql`
+- [ ] T071 [US3] Migration for the `pg_cron` sweep running **every 2 minutes**, retrying `pending` rows and marking exhausted ones `undelivered` (FR-040b, SC-006), in `supabase/migrations/0014_delivery_sweep.sql`
 - [ ] T072 [US3] Build the undelivered-inquiry banner with visitor details readable inline (FR-040b) in `components/studio/UndeliveredBanner.tsx`
 - [ ] T073 [US3] Build the acknowledge route that clears the banner without deleting the record (FR-040c) in `app/(designer)/studio/inquiries/[id]/acknowledge/route.ts`
 - [ ] T074 [P] [US3] Integration test: rate limit rejects the 6th submission; a filled honeypot is indistinguishable from success and stores nothing; **a direct anon-key insert against the data layer is rejected** (FR-041c, SC-016), in `tests/integration/inquiry-abuse.test.ts`

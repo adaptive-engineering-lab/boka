@@ -41,7 +41,11 @@ export default defineConfig({
 
   webServer: {
     command: 'npm run dev',
-    url: BASE_URL,
+    // Readiness is probed against the sign-in page, not `/`. Playwright treats a 404 as
+    // "not ready yet", and the storefront homepage does not exist until the US2 increment
+    // (T052) — so probing the root would time out the whole suite for a reason that has
+    // nothing to do with the server being up.
+    url: `${BASE_URL}/auth/sign-in`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

@@ -20,11 +20,20 @@ import path from 'node:path';
 const ROOT = path.resolve(__dirname, '../..');
 const SERVICE_KEY_NAME = 'SUPABASE_SERVICE_ROLE_KEY';
 
-/** Files permitted to name the service-role key at all. */
+/**
+ * Files permitted to name the service-role key at all.
+ *
+ * Listed one by one rather than exempting `tests/` wholesale. The point of this check is
+ * that adding a new reader of the key requires an edit here, where someone has to look at
+ * it — a directory-wide exemption would let one appear silently.
+ */
 const ALLOWED = new Set([
   'lib/supabase/admin.ts',
   '.env.example',
   'tests/integration/no-service-key.test.ts',
+  // Integration tests assert database-level behaviour (triggers, cascades, storage
+  // cleanup) and connect directly. Nothing under tests/ is shipped to a browser.
+  'tests/integration/helpers/db.ts',
 ]);
 
 const SKIP_DIRS = new Set([
