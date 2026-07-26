@@ -1,0 +1,40 @@
+# Environment — never commit. SUPABASE_SERVICE_ROLE_KEY bypasses RLS entirely.
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Next.js
+.next/
+out/
+build/
+next-env.d.ts
+
+# Supabase local stack
+supabase/.branches/
+supabase/.temp/
+
+# Test output
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Editor / OS
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+yarn-error.log*
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Vercel / build metadata
+.vercel
+*.tsbuildinfo
