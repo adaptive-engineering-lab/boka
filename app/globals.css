@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Accessibility baseline (FR-012c, WCAG 2.1 AA).
+ * The full pass is T076; these are the parts that belong in one global place.
+ */
+@layer base {
+  /* Visible focus on every interactive element. Never remove this without a
+     replacement indicator — keyboard users lose their position entirely. */
+  :focus-visible {
+    outline: 2px solid theme('colors.gray.900');
+    outline-offset: 2px;
+  }
+
+  /* Respect a reduced-motion preference. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  body {
+    @apply bg-white text-gray-900 antialiased;
+  }
+}
+
+@layer utilities {
+  /* Visually hidden but available to assistive technology — used for the honeypot
+     label and for skip links. */
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}

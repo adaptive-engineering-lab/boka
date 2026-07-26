@@ -60,6 +60,14 @@ These passed, but a reviewer may reasonably disagree:
   **Assumptions** — particularly the single-owner-account and email/password choices, which are still
   defaults rather than confirmed decisions.
 
+**Re-validated 2026-07-26** after `/speckit-analyze`: 16/16 items still passing. The analysis found 25
+issues, all remediated — but note that **none of them were spec-quality failures this checklist could
+have caught**. The two CRITICAL findings were Principle II violations in the *schema and storage design*,
+which this checklist does not examine. The gate that covers them is
+[public-surface-review.md](./public-surface-review.md), created in response. Requirement coverage grew
+from 56 to 63 FRs and 16 to 18 SCs; the new ones (FR-009a, FR-013a, FR-025a, FR-030a, FR-041c, SC-017,
+SC-018) are all testable and traced to tasks.
+
 **Re-validated 2026-07-26** after the clarification session: 16/16 items still passing, no state
 changes. The clarifications strengthened testability (SC-009's vague wording was already fixed; FR-040
 and FR-041 lost their unquantified adjectives) without introducing new gaps. Closest call on *no

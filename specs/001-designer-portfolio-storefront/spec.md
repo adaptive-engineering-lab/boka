@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-26
 
-**Status**: Draft
+**Status**: Planned — clarified, planned, and analyzed; ready for implementation
 
 **Input**: User description: "against fashion-designer-app-spec.md to turn it into a numbered feature spec"
 
@@ -29,6 +29,24 @@ governed by `.specify/memory/constitution.md` v1.0.0.
 - Q: When an inquiry notification email fails to send, how does the designer find out? → A: Retry with
   backoff, then flag the inquiry as undelivered and show a dashboard banner with the visitor's details
   readable inline.
+
+### Session 2026-07-26 (post-analysis)
+
+Five gaps surfaced by `/speckit-analyze` that the spec genuinely did not settle. These were decided by
+**default rather than asked**, so they are recorded here to be challenged rather than discovered later.
+
+- Q: Can the designer delete an inquiry in v1? → A: **No.** FR-042 forbids an inquiry inbox, so v1 has
+  no delete affordance. FR-045 is reworded: no automatic expiry in v1; manual deletion arrives with the
+  v1.1 inbox.
+- Q: What happens to a design whose photos all fail to upload? → A: **It is never created.** A design
+  requires at least one successfully processed photo (FR-013a), which removes the zero-photo state
+  entirely rather than handling it at render time.
+- Q: What is the maximum upload size per photo? → A: **25 MB**, comfortably above a high-resolution
+  phone photo and below anything that would stall a mobile upload (FR-012).
+- Q: How is "meaningful content within 3 seconds on a 3G-class connection" measured? → A: **Largest
+  Contentful Paint under 3s at a 400 kbps / 400 ms RTT throttle profile** (SC-004).
+- Q: Which dimensions are filters and which are sorts? → A: **Filter** by category and collection;
+  **sort** by date and title. "Sort by category" had no defined meaning (FR-018, FR-030).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -115,6 +133,10 @@ private note text appears anywhere in the page.
 11. **Given** a visitor knows one design's public URL, **When** they alter it to guess at neighbouring
     identifiers, **Then** no unpublished design is revealed and the responses do not distinguish a
     draft from one that does not exist.
+12. **Given** a visitor saved the image URL of a published design, **When** the designer moves that
+    design to draft or deletes it, **Then** the saved image URL no longer returns the image.
+13. **Given** a category or collection is used only by draft designs, **When** a visitor opens the
+    public filter controls, **Then** that category or collection is not offered.
 
 ---
 
@@ -166,7 +188,8 @@ with a malformed email and confirm the form rejects it before submission.
 - **Upload interrupted**: The designer loses connection or closes the app mid-upload. Partially uploaded
   photos must not leave a broken design record in her grid; she can retry without duplicating the design.
 - **Unsupported or oversized file**: The designer selects a file that is not JPEG, PNG, or HEIC, or one
-  far larger than expected. She is told which formats are accepted, and the rest of the upload is unaffected.
+  larger than 25 MB. She is told which formats are accepted and what the size limit is, and the other
+  photos in the same upload are unaffected (FR-012).
 - **Session expiry mid-edit**: The designer's session expires while a design form is open. She is
   prompted to sign in again and her unsaved entries are not silently discarded without warning.
 - **Deleting a design with inquiries**: A design that has received inquiries is deleted. Each inquiry
@@ -181,8 +204,12 @@ with a malformed email and confirm the form rejects it before submission.
   inside the limit.
 - **Empty filter result**: The designer or a visitor filters to a combination with no matches. They see
   a clear "nothing matches" state with a way back to the full grid, not a blank page.
-- **Design with no photos**: A design record exists whose photos all failed to upload. It must not
-  render as a broken image on any surface.
+- **Design with no photos**: Cannot occur. A design is not created until at least one photo has been
+  successfully processed (FR-013a), so the zero-photo state is eliminated rather than handled at render
+  time. If every photo in an upload fails, the designer is told and no record is left behind.
+- **Image URL retained after unpublish**: A visitor saved a design's image URL while it was published,
+  then the designer moved the design to draft or deleted it. The image stops being retrievable (FR-009a);
+  a stored file is never addressable independently of its design's published state.
 - **Very long text**: A very long title, collection name, or public description does not break the grid
   or detail layout at mobile width.
 
@@ -210,10 +237,17 @@ with a malformed email and confirm the form rejects it before submission.
 - **FR-008**: System MUST display upload progress while photos are transferring.
 - **FR-009**: System MUST generate compressed, resized variants for display, and MUST serve those
   variants — not the originals — on the public storefront.
-- **FR-010**: System MUST retain the original uploaded file for the designer's own reference.
+- **FR-009a**: System MUST gate every image request on the parent design's published state at request
+  time. A display variant belonging to a design that has been moved to draft or deleted MUST stop being
+  retrievable, including by a visitor who recorded the image URL while the design was published. Stored
+  image files MUST NOT be publicly addressable independently of this gate.
+- **FR-010**: System MUST retain the original uploaded file for the designer's own reference, and MUST
+  never expose an original to a visitor under any circumstance.
 - **FR-011**: System MUST show a lightweight placeholder (blur or skeleton) in each image slot while
   images load, reserving the final layout space so content does not shift.
-- **FR-012**: System MUST reject unsupported file types with a message naming the accepted formats.
+- **FR-012**: System MUST reject any upload that is not JPEG, PNG, or HEIC, or that exceeds 25 MB per
+  photo, with a message naming the accepted formats and the size limit. A rejected file MUST NOT affect
+  the other photos in the same upload.
 - **FR-012a**: System MUST offer the designer an optional alt-text field for each photo at upload and
   edit time.
 - **FR-012b**: System MUST render alt text for every displayed photo, falling back to the design title
@@ -227,13 +261,20 @@ with a malformed email and confirm the form rejects it before submission.
 
 - **FR-013**: System MUST let the designer record, for each design: title, one or more photos, category,
   collection/season, private notes, and an optional public description.
-- **FR-014**: System MUST set the creation date automatically on upload and maintain a last-updated time.
+- **FR-013a**: System MUST require at least one successfully processed photo before a design record
+  exists. A design whose photos all fail to upload MUST NOT be created, so no design can render as a
+  broken image on any surface.
+- **FR-014**: System MUST set the creation date automatically on upload, and MUST update the
+  last-updated time on every subsequent modification of the record.
 - **FR-015**: System MUST offer categories as a selectable list that the designer can extend.
 - **FR-016**: System MUST accept collection/season as free text (for example, "Spring 2027").
 - **FR-017**: System MUST display the designer's designs in a grid — two columns at mobile width, four
   or more at desktop width.
-- **FR-018**: Designer MUST be able to filter and sort her designs by category, collection, and date.
-- **FR-019**: Designer MUST be able to edit or delete any of her design records.
+- **FR-018**: Designer MUST be able to **filter** her designs by category and by collection, and to
+  **sort** them by date (newest or oldest first) and by title (A–Z). Filters and sorts are independent
+  dimensions and MUST be combinable.
+- **FR-019**: Designer MUST be able to edit or delete any of her design records. Deleting a design MUST
+  also delete its stored image files, both originals and display variants.
 - **FR-020**: System MUST persist all designs, photos, inquiries, and profile data server-side, such
   that signing in from any device surfaces the same archive.
 
@@ -243,15 +284,19 @@ with a malformed email and confirm the form rejects it before submission.
 - **FR-022**: System MUST show only published designs on every public surface.
 - **FR-023**: System MUST make draft designs unreachable to visitors by any means, including direct URL
   or identifier guessing, and MUST NOT distinguish a draft from a non-existent design in its response.
+  "Unreachable" includes the design's stored image files (FR-009a) and every derived surface — no
+  attribute of an unpublished design may be retrieved through any route, view, table, or storage path.
 - **FR-023a**: System MUST address each design publicly by a slug derived from its title plus a random
   suffix (for example, `midnight-gown-7f3a`), such that the identifier space cannot be enumerated and
   the existence of unpublished work cannot be discovered by probing predictable URLs.
 - **FR-023b**: System MUST keep a design's slug stable once assigned, including when the designer later
   renames the design, so that previously shared links continue to resolve.
 - **FR-024**: System MUST treat private notes as designer-only and MUST NOT expose them in any public
-  page, response, page metadata, or link preview.
-- **FR-025**: System MUST use the public description as the only free-text field visible to visitors,
-  with no per-design override that promotes private notes to public.
+  page, response, page metadata, or link preview. No per-design setting may override this.
+- **FR-025**: System MUST use the public description as the only free-text field visible to visitors.
+- **FR-025a**: System MUST expose public data through explicit, published-gated projections that name
+  their columns, rather than by retrieving whole records and removing fields afterward. This applies to
+  every entity reachable from a public surface, not only to designs.
 - **FR-026**: Designer MUST be able to change a design between published and draft at any time, with the
   public storefront reflecting the change on the visitor's next load.
 
@@ -262,7 +307,10 @@ with a malformed email and confirm the form rejects it before submission.
 - **FR-028**: System MUST show the designer's bio and optional profile photo on the public homepage,
   above or alongside the grid.
 - **FR-029**: Designer MUST be able to edit her bio and profile photo from her account settings.
-- **FR-030**: Visitors MUST be able to filter and sort the public grid by category and collection.
+- **FR-030**: Visitors MUST be able to **filter** the public grid by category and by collection, and to
+  **sort** it by date (newest or oldest first) and by title (A–Z), in any combination.
+- **FR-030a**: Filter options offered to visitors MUST be derived from published designs only. A category
+  or collection used exclusively by draft designs MUST NOT appear in any public control.
 - **FR-031**: Visitors MUST be able to open a published design and see all of its photos and its public
   description.
 - **FR-032**: System MUST NOT present any buy, cart, checkout, comment, favorite, upload, edit, or
@@ -293,16 +341,21 @@ with a malformed email and confirm the form rejects it before submission.
   submissions beyond that with a message explaining the limit.
 - **FR-041a**: System MUST include a hidden honeypot field in the inquiry form and MUST silently reject
   any submission where it has been filled in.
-- **FR-041b**: System MUST NOT require the visitor to create an account, solve a visible challenge, or
-  interact with a third-party service in order to submit an inquiry.
+- **FR-041b**: System MUST NOT require the visitor to solve a visible challenge or interact with a
+  third-party service in order to submit an inquiry.
+- **FR-041c**: System MUST enforce the honeypot and rate-limit checks on a path that a client cannot
+  bypass. Inquiry records MUST NOT be writable directly by an anonymous client using publicly available
+  credentials; the only write path is the server-mediated submission route that performs these checks
+  first.
 - **FR-042**: System MUST NOT provide an in-app inquiry inbox in v1. The undelivered-inquiry banner in
   FR-040b is an exception surface for failed deliveries only, not a browsable list of all inquiries.
 - **FR-043**: System MUST store a snapshot of the design's title on each inquiry at submission time, so
   the inquiry remains meaningful independently of the design record.
 - **FR-044**: System MUST preserve inquiry records when their associated design is deleted, retaining
   the visitor's name, email, message, and the design title snapshot.
-- **FR-045**: System MUST retain inquiry records until the designer explicitly deletes them. No
-  automatic expiry or scheduled purge applies in v1.
+- **FR-045**: System MUST NOT apply any automatic expiry or scheduled purge to inquiry records in v1.
+  Records persist indefinitely; manual deletion is a v1.1 capability that arrives with the inquiry inbox,
+  since FR-042 gives v1 no surface on which to offer it.
 - **FR-046**: System MUST restrict inquiry records to the designer alone; no inquiry data may be
   reachable from any public surface, including the identity of anyone who has previously inquired.
 
@@ -320,7 +373,8 @@ with a malformed email and confirm the form rejects it before submission.
   optional message, an unread/read state, a notification delivery state (pending, delivered, or
   undelivered-after-retries) with an acknowledged flag, a reference to the design, a snapshot of the
   design's title taken at submission, and a creation time. Outlives the design it references — if the design is deleted
-  the inquiry remains, identified by the title snapshot. Created by an unauthenticated visitor; readable
+  the inquiry remains, identified by the title snapshot. Submitted by an unauthenticated visitor but
+  written only by the server after the honeypot and rate-limit checks (FR-041c); readable
   only by the designer, and never surfaced publicly.
 - **Designer (User)**: The single owner account. Carries an email (which is also where inquiry
   notifications are sent), a name, a public bio, and an optional profile photo. Owns every design.
@@ -331,21 +385,22 @@ with a malformed email and confirm the form rejects it before submission.
 
 - **SC-001**: The designer can photograph a piece, add its details, and publish it from her phone in
   under 3 minutes, in a single sitting, without assistance.
-- **SC-002**: 100% of draft designs are unreachable from every public surface, including by direct URL,
-  verified by automated check before each release.
+- **SC-002**: 100% of draft designs are unreachable from every public surface — page, direct URL, filter
+  control, and stored image URL — verified by automated check before each release.
 - **SC-003**: Private notes appear in zero public responses or pages, verified by automated check before
   each release.
-- **SC-004**: A visitor on a mobile connection typical of 3G sees meaningful storefront content within
-  3 seconds of opening the URL.
+- **SC-004**: The storefront reaches Largest Contentful Paint in under 3 seconds at a 400 kbps downlink
+  / 400 ms round-trip throttle profile, measured on the grid page with a cold cache.
 - **SC-005**: A visitor can go from the homepage to a specific design's full detail in two taps or fewer.
-- **SC-006**: The designer receives an inquiry notification within 5 minutes of submission, identifying
-  the correct design in 100% of cases.
+- **SC-006**: When the email provider is available, the designer receives an inquiry notification within
+  5 minutes of submission, identifying the correct design in 100% of cases. During a provider outage this
+  budget does not apply and FR-040b's dashboard banner is the guarantee instead.
 - **SC-007**: 100% of submitted inquiries are recorded, including those whose notification failed to send.
 - **SC-008**: The designer's full archive is identical across two different devices immediately after
   signing in on the second.
-- **SC-009**: At the launch scale of 50 designs averaging 3 photos each, the storefront grid reaches
-  first meaningful content within the SC-004 budget and filtering returns an updated grid within
-  1 second.
+- **SC-009**: At the launch scale of 50 designs averaging 3 photos each, the storefront grid meets the
+  SC-004 Largest Contentful Paint budget, and applying a filter or sort returns an updated grid within
+  1 second at the same throttle profile.
 - **SC-010**: Zero purchase, cart, checkout, comment, or edit affordances are reachable by a visitor,
   verified by review of every public surface before release.
 - **SC-011**: No public grid or detail page renders a blank screen in any empty or no-match state.
@@ -357,7 +412,14 @@ with a malformed email and confirm the form rejects it before submission.
 - **SC-015**: When email delivery is unavailable, 100% of submitted inquiries reach the designer's
   attention through the dashboard banner, with zero inquiries discoverable only in server logs.
 - **SC-016**: Automated inquiry submissions exceeding the FR-041 limits are rejected, while a genuine
-  visitor inquiring about several designs in one session is never blocked.
+  visitor inquiring about several designs in one session is never blocked. A submission attempted
+  directly against the data layer with publicly available credentials, bypassing the submission route,
+  is rejected outright (FR-041c).
+- **SC-017**: A display-variant image URL captured while a design was published returns not-found once
+  that design is moved to draft or deleted, verified by automated check before each release (FR-009a).
+- **SC-018**: The designer completes the photograph → details → publish flow on a phone in under
+  3 minutes (SC-001), and reaching a design's detail from the homepage takes two taps or fewer (SC-005);
+  both are timed during the pre-release mobile pass rather than assumed.
 
 ## Assumptions
 

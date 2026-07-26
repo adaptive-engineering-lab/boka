@@ -58,13 +58,29 @@ Gates derived from `.specify/memory/constitution.md` v1.0.0.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| I. Public View-Only Storefront | **PASS** | [public-surface.md](./contracts/public-surface.md): every route unauthenticated; the sole anonymous write is inquiry `INSERT`, backed by the only anonymous RLS insert policy in the schema. No login prompt on any public path. |
-| II. Private-By-Default Data Separation | **PASS — strengthened** | Two independent layers: `public_designs` omits `notes` from its column list, so no anonymous code path can hold it; and `design` has *no* anonymous RLS policy, so a mistaken direct query returns zero rows. Draft and nonexistent both yield zero rows, making the identical-404 requirement structural rather than conditional. |
-| III. Mobile-First Performance | **PASS** | `next/image` with stored `width`/`height` and a `blur_placeholder` on every photo row; public routes bound to the `display/` bucket only. Layouts specified mobile-first throughout the contracts. |
+| I. Public View-Only Storefront | **PASS** | [public-surface.md](./contracts/public-surface.md): every route unauthenticated; no login prompt on any public path. Inquiry submission is the only visitor action, and the write is server-mediated (FR-041c). |
+| II. Private-By-Default Data Separation | **PASS** | Four column-listed, published-gated views; **zero anonymous grants on any base table**; both storage buckets private with per-request publication checks on `/img`. Draft and nonexistent yield zero rows everywhere, making the identical-404 structural rather than conditional. |
+| III. Mobile-First Performance | **PASS** | `next/image` with stored `width`/`height` and a `blur_placeholder` per photo row; compressed variants only. Layouts specified mobile-first throughout the contracts. |
 | IV. Device-Independent Persistence | **PASS** | All entities in Postgres, all files in Supabase Storage. No device-local state is a system of record. |
 | V. Scope Discipline & Simplicity | **PASS with one recorded deviation** | One deployable, one managed service, no cache, no queue, no pagination, no theming. Rate limiting counts rows in Postgres rather than adding Redis. The `pg_cron` retry sweep is recorded below. |
 
-**No gate failed.** The single deviation is justified in Complexity Tracking rather than waived.
+### Re-evaluation after `/speckit-analyze` (2026-07-26)
+
+The first post-design pass recorded PASS on Principle II. **That was wrong**, and analysis caught three
+defects in the design it had approved:
+
+| Defect | Why the first pass missed it |
+|---|---|
+| The `display` bucket was **public**, so a photograph stayed downloadable forever once its design had been published — unpublishing removed the design from the storefront but not the image. | The check reasoned about RLS on the `photo` *table* and never asked what governed the storage *object*. Table-level correctness was mistaken for end-to-end correctness. |
+| Anonymous `SELECT` was granted directly on `category` and `photo`, returning `owner_id` and `original_path`, and letting a visitor enumerate categories belonging only to drafts. | Principle II's "select public fields explicitly" was applied to designs and then assumed to be satisfied everywhere, rather than checked per entity. |
+| Anonymous `INSERT` on `inquiry` meant a bot could POST straight to the data layer and skip the honeypot and rate limit entirely. | The checks were verified to exist in the route, without asking whether the route was the only way in. |
+
+All three are fixed in [data-model.md](./data-model.md) and recorded as research D11 and D12. The gate now
+reads PASS on the corrected design, and the lesson is written into the gate itself: **Principle II must be
+evaluated per reachable surface — table, view, route, and stored object — not per table.**
+
+**No gate fails on the current design.** The single Principle V deviation is justified in Complexity
+Tracking rather than waived.
 
 ## Project Structure
 
@@ -93,33 +109,51 @@ app/
 │   ├── page.tsx                 # Storefront grid + designer bio (FR-027, FR-028)
 │   └── d/[slug]/
 │       ├── page.tsx             # Design detail (FR-031)
-│       └── inquire/route.ts     # The only anonymous write (FR-036)
+│       ├── not-found.tsx        # Identical 404 for draft/deleted/nonexistent (FR-023)
+│       └── inquire/route.ts     # Submission route — server-side write (FR-036, FR-041c)
+├── img/[photoId]/[width]/       # Publication-gated image delivery (FR-009a)
+│   └── route.ts
 ├── (designer)/studio/           # Authenticated surface
 │   ├── page.tsx                 # Dashboard + undelivered banner (FR-040b)
-│   ├── designs/[id]/page.tsx    # Create / edit / publish (FR-019, FR-026)
+│   ├── designs/
+│   │   ├── new/page.tsx         # Create (FR-013, FR-013a)
+│   │   └── [id]/page.tsx        # Edit / publish / delete (FR-019, FR-026)
 │   ├── settings/page.tsx        # Bio and profile photo (FR-029)
-│   └── categories/page.tsx      # Editable category list (FR-015)
-├── auth/                        # Sign-in (FR-001)
+│   ├── categories/page.tsx      # Editable category list (FR-015)
+│   └── inquiries/[id]/acknowledge/route.ts   # Clear banner (FR-040c)
+├── auth/sign-in/page.tsx        # Sign-in (FR-001)
 └── layout.tsx
+
+middleware.ts                    # Session gate on /studio (FR-001)
+
+components/
+├── DesignGrid.tsx               # Shared mobile-first grid primitive (FR-017)
+├── public/                      # Storefront: header, grid, filters, empty states, inquiry form
+└── studio/                      # Dashboard: uploader, alt-text, filters, publish toggle, banner
 
 lib/
 ├── data/
-│   ├── public-designs.ts        # Reads public_designs ONLY — never `design`
+│   ├── public-designs.ts        # Reads the four public_* views ONLY — never a base table
 │   └── designer-designs.ts      # Owner-scoped reads/writes
-├── images/                      # sharp pipeline: HEIC, variants, LQIP (FR-007–FR-011)
-├── inquiries/                   # Validation, honeypot, rate limit, delivery (FR-037–FR-041)
+├── images/                      # sharp pipeline, validation, alt-text, signed URLs (FR-007–FR-012)
+├── inquiries/                   # Validation, honeypot, rate limit, delivery (FR-037–FR-041c)
+├── supabase/                    # Client factories; service-role isolated server-side
 └── auth/
 
 supabase/
-├── migrations/                  # Tables, RLS policies, public_designs view, slug trigger
+├── migrations/                  # Tables, RLS, four public views, triggers, functions, cron sweep
 └── seed.sql                     # Owner account, starter categories
 
 tests/
-├── integration/                 # Slug generation, rate limiting, image pipeline
+├── integration/                 # Slug, rate limiting, image pipeline, service-key isolation
+├── perf/                        # Seeded 50-design measurement (SC-004, SC-009, SC-012)
 └── e2e/
-    ├── draft-invisibility.spec.ts   # MANDATORY (FR-023, SC-002)
+    ├── draft-invisibility.spec.ts   # MANDATORY (FR-023, SC-002) — includes image-URL revocation
     ├── notes-privacy.spec.ts        # MANDATORY (FR-024, SC-003)
-    └── accessibility.spec.ts        # SC-013, SC-014
+    ├── view-only.spec.ts            # FR-032, SC-010
+    ├── inquiry.spec.ts              # US3 incl. delivery-failure path
+    ├── accessibility.spec.ts        # SC-013
+    └── keyboard.spec.ts             # SC-014
 ```
 
 **Structure Decision**: A single full-stack Next.js project, not the backend/frontend split. Principle V
@@ -136,10 +170,14 @@ their features count as complete.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|--------------------------------------|
-| Scheduled `pg_cron` sweep to retry pending inquiry notifications (Principle V discourages background job machinery) | FR-040a requires retry with backoff and FR-040b requires exhausted retries to be marked `undelivered` and surfaced. `after()` covers the common case, but a serverless freeze or a crash mid-retry would strand an inquiry in `pending` forever — invisible to the designer and contradicting SC-015. The sweep is the durability backstop. | **Synchronous send with no retry** cannot satisfy FR-040a. **Inline retry before responding** adds seconds to the visitor's only available action and still dies with the request. **A dedicated queue** (Inngest, QStash, Redis + worker) is real infrastructure for a site expecting a handful of inquiries a week — strictly worse under Principle V than a scheduled query against a table that already exists. The deviation is correctness-driven, not scale-driven, which is the distinction Principle V actually draws. |
+| Scheduled `pg_cron` sweep (every 2 minutes) to retry pending inquiry notifications (Principle V discourages background job machinery) | FR-040a requires retry with backoff and FR-040b requires exhausted retries to be marked `undelivered` and surfaced. `after()` covers the common case, but a serverless freeze or a crash mid-retry would strand an inquiry in `pending` forever — invisible to the designer and contradicting SC-015. The sweep is the durability backstop. The 2-minute cadence is set by SC-006's 5-minute notification budget; the original 15-minute draft silently broke it. | **Synchronous send with no retry** cannot satisfy FR-040a. **Inline retry before responding** adds seconds to the visitor's only available action and still dies with the request. **A dedicated queue** (Inngest, QStash, Redis + worker) is real infrastructure for a site expecting a handful of inquiries a week — strictly worse under Principle V than a scheduled query against a table that already exists. The deviation is correctness-driven, not scale-driven, which is the distinction Principle V actually draws. |
+| Image requests traverse the application (`/img` route) rather than hitting object storage directly | FR-009a requires image access to be revoked when a design is unpublished or deleted. A public bucket cannot do this — the URL keeps working forever. Re-checking publication per request is the only arrangement where withdrawal actually withdraws. | **Public bucket** fails FR-023 outright. **Long-lived signed URLs generated at render** make the TTL the revocation window, so an hour-long TTL means an hour of access to withdrawn work. **Moving objects on unpublish** turns every publish toggle into a storage mutation that can partially fail, leaving rows and objects disagreeing. At 50 designs the extra hop is immaterial and the route is cacheable. |
 
 ## Phase status
 
-- [x] **Phase 0** — [research.md](./research.md): D1–D10, all NEEDS CLARIFICATION resolved
+- [x] **Phase 0** — [research.md](./research.md): D1–D12, all NEEDS CLARIFICATION resolved
 - [x] **Phase 1** — [data-model.md](./data-model.md), [contracts/](./contracts/), [quickstart.md](./quickstart.md), agent context updated
-- [ ] **Phase 2** — `tasks.md` via `/speckit-tasks` (not produced by this command)
+- [x] **Phase 2** — [tasks.md](./tasks.md) via `/speckit-tasks`
+- [x] **Analysis** — `/speckit-analyze` run 2026-07-26; 25 findings, all remediated. Two CRITICAL Principle II
+  defects (public display bucket, anonymous table grants) and one HIGH (bypassable abuse checks) required
+  schema and storage changes before implementation.

@@ -122,7 +122,8 @@ defeats the enumeration FR-023 is actually written against.
 
 **Decision**: Upload the original to Supabase Storage; generate compressed display variants server-side
 with `sharp`; serve through `next/image` with a blur placeholder derived from a tiny inline base64
-thumbnail stored on the photo row.
+thumbnail stored on the photo row. **Both storage buckets are private**; images reach visitors through a
+publication-gated application route (see D11).
 
 **Rationale**:
 
@@ -149,8 +150,15 @@ leaves the server trusting client output).
 ## D6. Inquiry notification delivery
 
 **Decision**: Record the inquiry, respond to the visitor immediately, then send via **Resend** inside
-Next.js's `after()` hook with up to 3 attempts and exponential backoff. A `pg_cron` sweep every 15
-minutes retries anything still `pending` and marks exhausted rows `undelivered`.
+Next.js's `after()` hook with up to 3 attempts and exponential backoff. A `pg_cron` sweep **every 2
+minutes** retries anything still `pending` and marks exhausted rows `undelivered`.
+
+**On the 2-minute cadence**: the first draft specified 15 minutes, which silently broke SC-006's
+5-minute notification budget — any inquiry whose in-request attempts failed would arrive up to 15
+minutes late. At 2 minutes, a submission whose `after()` attempts fail is retried well inside the
+budget. The sweep is a single indexed query against a table holding a handful of rows a week, so the
+cadence costs nothing. SC-006 has also been scoped to exclude sustained provider outages, during which
+no cadence could meet a 5-minute promise and FR-040b's banner is the real guarantee.
 
 **Rationale**: FR-040 requires the record to survive a send failure, FR-040a requires retry with
 backoff, and FR-040b requires exhausted retries to surface on the dashboard. Sending inside the request
@@ -179,8 +187,9 @@ are equivalent; the integration is small and isolated behind one module, so swit
 
 ## D7. Rate limiting (FR-041)
 
-**Decision**: Count rows in Postgres over a time window, keyed by a salted hash of the client IP. No
-Redis, no third-party service.
+**Decision**: Count rows in Postgres over a time window, keyed by a salted hash of the client IP,
+enforced **inside the submission route which is the only writer** (see D12). No Redis, no third-party
+service.
 
 **Rationale**: The limits are 5/hour and 20/day. At this volume a `count(*)` over an indexed
 `(sender_hash, created_at)` pair is trivially fast and needs no additional infrastructure, which
@@ -229,17 +238,64 @@ end-to-end test observes and what a unit test cannot.
 
 ---
 
+## D11. Image delivery and access revocation
+
+**Decision**: Both storage buckets are private. Visitors fetch images through `/img/{photo_id}/{width}`,
+which looks the photo up in `public_photos`, returns an identical 404 when there is no row, and otherwise
+redirects to a 60-second signed URL.
+
+**Rationale**: This closes the most serious defect found in analysis. A public `display` bucket meant RLS
+gated the `photo` *table* while the storage object stayed world-readable — so once a design had been
+published, its photograph remained downloadable forever by anyone holding the URL, even after the design
+was moved to draft or deleted. That directly contradicts Principle II ("drafts MUST NOT be reachable by
+guessing a URL or ID") and FR-023, and it is invisible in testing unless you specifically re-request an
+old image URL after unpublishing.
+
+Re-checking publication per request makes revocation immediate. The 60-second signature is the only
+residual window and cannot be renewed once the design is unpublished.
+
+**Alternatives considered**:
+
+| Option | Why rejected |
+|---|---|
+| Public bucket, accept the exposure | The original design. Fails FR-023 outright — an unpublished garment stays downloadable indefinitely. |
+| Long-lived signed URLs generated at page render | Simpler and CDN-friendly, but the TTL becomes the revocation window; a 1-hour TTL means an hour of continued access to work the designer has withdrawn. |
+| Move objects to a private prefix on unpublish | Immediate revocation, but every publish/unpublish becomes a storage mutation that can partially fail, leaving rows and objects disagreeing about where a file lives. |
+
+**Cost**: image requests traverse the application rather than hitting the CDN directly. At 50 designs
+this is immaterial (Principle V), and the route is cacheable with a short TTL.
+
+## D12. Inquiry write path
+
+**Decision**: Anonymous clients cannot write to `inquiry` at all. The submission route performs the
+honeypot and rate-limit checks and then inserts using a server-side key.
+
+**Rationale**: The original design granted anonymous `INSERT` with the checks living in the route. But the
+anon key is necessarily published in the browser bundle, so a bot could POST directly to the data layer's
+REST endpoint, bypass the route, and write unlimited inquiries with arbitrary `sender_hash`,
+`delivery_state`, and `design_title_snapshot` values. FR-041 and FR-041a were enforced only against
+clients that chose to cooperate — which is precisely the "disciplinary rather than structural" failure
+this plan claims to avoid.
+
+A `SECURITY DEFINER` RPC callable by anon does not fix it either: the rate limit keys on `sender_hash`,
+which Postgres cannot derive on its own, so a caller supplying its own hash evades the limit by varying
+it. Making the server the sole writer is the only arrangement where the checks cannot be routed around.
+
+**Alternatives considered**: anon `INSERT` with a database-side trigger enforcing the rate limit (rejected
+— still trusts a client-supplied sender identity); a signed submission token issued by the page (rejected
+— adds a token lifecycle to protect one form, and the server-only write is simpler and stronger).
+
 ## Resolved Technical Context
 
 | Field | Resolution |
 |---|---|
 | Language/Version | TypeScript 5.x on Node.js 20 LTS |
 | Primary Dependencies | Next.js 15 (App Router), React 19, Supabase (Postgres/Auth/Storage), `sharp`, Resend, Tailwind CSS |
-| Storage | Supabase Postgres with RLS; Supabase Storage buckets `originals/` (private) and `display/` (public) |
+| Storage | Supabase Postgres with RLS; Supabase Storage buckets `originals/` and `display/` — **both private**, served via a publication-gated route (D11) |
 | Testing | Vitest (unit/integration), Playwright + axe-core (end-to-end, accessibility) |
 | Target Platform | Mobile-first responsive web; modern evergreen browsers, iOS Safari a first-class target |
 | Project Type | Web application — single full-stack Next.js project |
-| Performance Goals | First meaningful storefront content < 3s on 3G-class connections (SC-004); filter response < 1s at 50 designs (SC-009) |
+| Performance Goals | Storefront LCP < 3s at a 400 kbps / 400 ms RTT throttle profile (SC-004); filter or sort response < 1s at 50 designs (SC-009) |
 | Constraints | No visitor authentication (Principle I); no private field reachable publicly (Principle II); no layout shift on image load (SC-012); WCAG 2.1 AA (FR-012c) |
 | Scale/Scope | 1 designer, < 50 designs averaging 3 photos, low inquiry volume |
 

@@ -3,8 +3,10 @@
 **Audience**: unauthenticated visitors. **Governed by**: Principles I and II.
 
 Every route here is reachable with a URL alone — no session, no account, no interstitial (FR-002).
-All design data on this surface comes from the `public_designs` view; the `design` table is never
-queried by a public route (see [data-model.md](../data-model.md) D3).
+All data on this surface comes from one of the four public views — `public_designs`,
+`public_designer_profile`, `public_categories`, `public_photos` — each published-gated with an explicit
+column list. **No base table is ever queried by a public route, and no base table is anonymously
+writable** (FR-025a, and see [data-model.md](../data-model.md)).
 
 > **The field lists below are the contract.** A field absent from a response shape must not appear in
 > the rendered HTML, in page metadata, or in any embedded JSON payload. `notes` appears nowhere in this
@@ -21,11 +23,19 @@ Server-rendered. The homepage *is* the storefront (FR-027).
 | Section | Fields |
 |---|---|
 | Designer profile | `name`, `bio`, `profile_photo_path` — from `public_designer_profile` (FR-028). **Never `email`.** |
-| Design grid | For each published design: `slug`, `title`, `collection`, `category.name`, first photo's `display_path`, `blur_placeholder`, `width`, `height`, resolved `alt_text` |
-| Filter options | Distinct category names and collection names across published designs only |
+| Design grid | For each published design: `slug`, `title`, `collection`, `category.name`, and its first photo from `public_photos` — image URL, `blur_placeholder`, `width`, `height`, resolved `alt_text` |
+| Filter options | Category names from `public_categories`; collection names distinct across `public_designs`. **Published designs only** (FR-030a) — a category or collection used solely by drafts must not appear |
 
-**Query parameters**: `?category=<name>` and `?collection=<name>` (FR-030). Unknown values yield the
-empty-result state, not an error.
+**Query parameters** (FR-030):
+
+| Parameter | Values | Behaviour |
+|---|---|---|
+| `?category=<name>` | any published category | filter |
+| `?collection=<name>` | any published collection | filter |
+| `?sort=` | `newest` (default), `oldest`, `title` | sort |
+
+Filters and sorts are independent and combinable. Unknown values yield the empty-result state or the
+default sort, never an error.
 
 **States**
 
@@ -39,7 +49,7 @@ empty-result state, not an error.
 - Draft designs are absent — enforced at the view, not by view-layer filtering (FR-022).
 - Every `<img>` carries non-empty alt text (FR-012b).
 - Every image slot reserves its final dimensions before loading (SC-012).
-- First meaningful content within 3s on a 3G-class connection (SC-004).
+- Largest Contentful Paint under 3s at a 400 kbps / 400 ms RTT throttle profile (SC-004).
 
 ---
 
@@ -48,11 +58,11 @@ empty-result state, not an error.
 **Path parameter**: `slug` — title-derived with a random suffix, e.g. `midnight-gown-7f3a` (FR-023a).
 
 **Returns**: `slug`, `title`, `collection`, `category.name`, `public_description`, `created_at`, and
-all photos ordered by `position` with `display_path`, `blur_placeholder`, `width`, `height`, resolved
-`alt_text`.
+all photos from `public_photos` ordered by `position` — image URL, `blur_placeholder`, `width`, `height`,
+resolved `alt_text`. **Never `original_path`** (FR-010).
 
 **Side effect**: calls `increment_design_view(slug)` (FR-034). The count is recorded and **not
-displayed** in v1 (FR-035 defers display to v1.1).
+displayed** in v1 — FR-034 defers display to v1.1.
 
 **Not-found behaviour** — this is a constitutional requirement, not an error-handling detail:
 
@@ -72,9 +82,42 @@ all three cases, so no branching logic is written — the sameness is structural
 
 ---
 
+## `GET /img/{photo_id}/{width}` — Image delivery
+
+Every visitor-facing image is fetched through this route. Both storage buckets are private, so there is
+no other way to reach a file (FR-009a, research D11).
+
+**Per-request behaviour** — the order is the contract:
+
+1. Look up `photo_id` in `public_photos`, which is gated on the parent design being published.
+2. **No row → 404**, identical for a draft's photo, a deleted design's photo, and a nonexistent id.
+3. Row found → issue a **60-second** signed URL for the display object and redirect to it.
+
+| Requested | Response |
+|---|---|
+| Photo of a published design | 302 to a 60s signed URL |
+| **Photo of a draft design** | **404** |
+| Photo of a deleted design | 404 |
+| Nonexistent photo id | 404 |
+| Any original-resolution file | **404 — no route exposes originals** |
+
+> **This route exists because publication state changes after URLs are handed out.** Serving display
+> variants from a public bucket meant a photograph stayed downloadable forever once its design had been
+> published — unpublishing removed the design from the storefront while leaving the image retrievable by
+> anyone who had saved the link. Checking publication on every request makes withdrawal actually
+> withdraw. The 60-second signature is the only residual window, and it cannot be renewed once the design
+> is no longer published.
+
+**Guarantees**: never serves an original (FR-010); never serves a draft's or deleted design's image
+(FR-009a, FR-023); returns no metadata that would distinguish "unpublished" from "does not exist".
+
+---
+
 ## `POST /d/{slug}/inquire` — Submit an inquiry
 
-The **only** write an unauthenticated visitor may perform (Principle I, FR-004).
+The only submission an unauthenticated visitor may make (Principle I, FR-004). The **write itself is
+performed by the server**, not by the client — anonymous clients have no insert permission on `inquiry`
+(FR-041c, research D12).
 
 **Request**
 
@@ -90,13 +133,18 @@ The **only** write an unauthenticated visitor may perform (Principle I, FR-004).
 1. **Honeypot check.** Non-empty → respond as if successful, record nothing (FR-041a). A bot learns nothing.
 2. **Rate limit.** > 5 in the last hour or > 20 in the last day for this `sender_hash` → reject with an explanation (FR-041).
 3. **Validate.** Malformed email → field-level error, no submission (FR-037).
-4. **Persist.** Insert with `design_title_snapshot`, `delivery_state = pending` (FR-043).
+4. **Persist.** Server-side insert with `design_title_snapshot`, `delivery_state = pending`, and a
+   server-computed `sender_hash` (FR-043). The client never supplies these.
 5. **Respond.** Confirmation to the visitor — *before* the email is attempted.
-6. **Deliver.** In `after()`: send via Resend, up to 3 attempts with backoff (FR-040a). Success → `delivered`; exhausted → `undelivered`, surfacing on the designer's dashboard (FR-040b).
+6. **Deliver.** In `after()`: send via Resend, up to 3 attempts with backoff (FR-040a). Success → `delivered`; exhausted → `undelivered`, surfacing on the designer's dashboard (FR-040b). A `pg_cron` sweep every 2 minutes retries anything left `pending`, keeping SC-006's 5-minute budget reachable.
 
 **Steps 5 and 6 are ordered deliberately.** The visitor's confirmation does not depend on email
 delivery — US3 scenario 5 requires a normal confirmation even when email is entirely down, and FR-040
 requires the record to persist regardless.
+
+**Steps 1–3 are unbypassable because step 4 is server-only.** If anonymous clients could insert
+directly, a bot would skip this route entirely and the honeypot and rate limit would apply only to
+clients that chose to cooperate.
 
 **Responses**
 
@@ -106,6 +154,7 @@ requires the record to persist regardless.
 | Honeypot triggered | Indistinguishable from accepted. Nothing stored. |
 | Rate limited | Explains the limit (FR-041). A visitor inquiring about several pieces in one session never reaches it. |
 | Validation failed | Field-level error; form retains entered values. |
+| Direct write attempted against the data layer | Rejected — anonymous credentials carry no insert permission (FR-041c). |
 
 **Guarantees**: never returns inquiry data, never reveals whether anyone else has inquired (FR-046),
 never creates a session.
@@ -117,8 +166,9 @@ never creates a session.
 Applies to every route above.
 
 - **No authentication is ever requested.** No login prompt, no "sign in to continue", no soft wall (Principle I).
-- **No private field is reachable.** `notes`, `owner_id`, `view_count`, `seo_*`, `updated_at`, designer `email`, and all inquiry data are absent from every response (Principle II).
-- **Images are compressed variants.** Public routes reference the `display/` bucket only; the `originals/` bucket is private (FR-009, FR-010).
+- **No private field is reachable.** `notes`, `owner_id`, `original_path`, `view_count`, `seo_*`, `updated_at`, designer `email`, and all inquiry data are absent from every response (Principle II).
+- **No base table is read or written anonymously.** Every read goes through one of the four published-gated views; the only anonymous write is `increment_design_view` (FR-025a).
+- **Images are compressed variants behind a publication gate.** Both buckets are private; `/img` re-checks publication per request and never serves an original (FR-009, FR-009a, FR-010).
 - **WCAG 2.1 AA.** Keyboard-operable controls, visible focus, sufficient contrast (FR-012c). A keyboard-only visitor can browse, open a design, and inquire (SC-014).
 - **Mobile-first.** Every layout is designed at mobile width and widened (Principle III).
 
@@ -130,3 +180,7 @@ These are mandated by the constitution's Quality Gates, not optional:
 2. No public response body, rendered page, or metadata contains any `notes` content (FR-024, SC-003).
 3. No public page contains a purchase, cart, checkout, comment, or edit affordance (FR-032, SC-010).
 4. Every rendered `<img>` has non-empty alt text; axe-core reports zero AA violations (SC-013).
+5. **An image URL captured while a design was published returns 404 after that design is moved to draft, and again after it is deleted** (FR-009a, SC-017). This is the assertion that would have caught the public-bucket defect.
+6. No public surface exposes `original_path`, and no route serves an original-resolution file (FR-010).
+7. A category used only by draft designs does not appear in any public filter control (FR-030a).
+8. An anonymous client using publicly available credentials cannot insert an `inquiry` row directly against the data layer (FR-041c, SC-016).

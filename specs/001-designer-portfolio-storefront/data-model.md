@@ -52,8 +52,12 @@ An editable list backing the category dropdown (FR-015).
 **Deletion rule**: A category in use by any design cannot be deleted; the designer must reassign those
 designs first. This prevents a design silently losing its category.
 
-**RLS**: Owner full access where `owner_id = auth.uid()`. Anonymous `SELECT` allowed — category names
-appear in the public filter control (FR-030) and carry no private information.
+**RLS**: Owner full access where `owner_id = auth.uid()`. **Anonymous `SELECT` is denied on this table.**
+Public filter options come from the `public_categories` view below.
+
+> Granting anonymous `SELECT` here was the original design and it was wrong on two counts: it returns
+> `owner_id` to visitors, and it lets a visitor enumerate categories that exist only on **draft**
+> designs — leaking the shape of unreleased work and contradicting FR-030a.
 
 ---
 
@@ -73,10 +77,20 @@ The central record. **This table is never read anonymously** (research D3).
 | `public_description` | `text` | nullable, ≤ 2000 chars | **yes** | FR-025 |
 | `published` | `boolean` | not null, default `false` | gate | FR-021 |
 | `view_count` | `integer` | not null, default 0 | no | FR-034 |
-| `seo_title` | `text` | nullable | stored, unused in v1 | FR-035 |
-| `seo_description` | `text` | nullable | stored, unused in v1 | FR-035 |
+| `seo_title` | `text` | nullable — see note | stored, unused in v1 | FR-035 |
+| `seo_description` | `text` | nullable — see note | stored, unused in v1 | FR-035 |
+
+**SEO fields stay null in v1, and the default is resolved at read time, not stored.** FR-035 says they
+"default to" the title and public description. Materialising that on insert would leave the copies stale
+the moment the designer edits either source field. Both columns are therefore nullable, no v1 code writes
+them, and the v1.1 renderer coalesces: `coalesce(seo_title, title)` and
+`coalesce(seo_description, public_description)`.
 | `created_at` | `timestamptz` | not null, default `now()` | **yes** | FR-014 |
-| `updated_at` | `timestamptz` | not null, default `now()` | no | FR-014 |
+| `updated_at` | `timestamptz` | not null, default `now()`, **maintained by trigger** | no | FR-014 |
+
+**`updated_at` requires a `BEFORE UPDATE` trigger**, not just a default. A column default fires only on
+insert, so without the trigger the "last-updated time" FR-014 asks for would silently remain the
+creation time forever. The same trigger is applied to `designer`.
 
 **`published` defaults to `false`** (FR-021). This is the single most important default in the schema:
 a design created by any means is invisible until deliberately published.
@@ -138,8 +152,55 @@ Two properties do the constitutional work:
 `view_count`, `seo_title`, `seo_description`, `owner_id`, and `updated_at` are also omitted — none is
 needed by a public surface in v1.
 
-A parallel `public_designer_profile` view exposes only `name`, `bio`, and `profile_photo_path` from
-`designer`, keeping `email` unreachable (FR-028).
+---
+
+## The other three public views
+
+Anonymous callers reach **no base table**. Every public read goes through one of four views, each with an
+explicit column list and a published gate. FR-025a requires this for every publicly reachable entity, not
+just designs.
+
+### `public_designer_profile`
+
+```sql
+create view public_designer_profile
+with (security_invoker = off) as
+select name, bio, profile_photo_path
+from designer;
+```
+
+`email` is omitted, keeping the notification address unreachable (FR-028).
+
+### `public_categories`
+
+```sql
+create view public_categories
+with (security_invoker = off) as
+select distinct c.id, c.name
+from category c
+join design d on d.category_id = c.id
+where d.published = true;
+```
+
+Two things this fixes. `owner_id` is omitted. And the join to published designs means **a category used
+only by drafts does not appear** — without it, a visitor reading the filter control could infer that
+unreleased work exists in a category with nothing published in it (FR-030a). The same pattern applies to
+the collection filter, which is derived from `public_designs.collection` rather than a table.
+
+### `public_photos`
+
+```sql
+create view public_photos
+with (security_invoker = off) as
+select p.id, p.design_id, p.position, p.display_path,
+       p.blur_placeholder, p.alt_text, p.width, p.height
+from photo p
+join design d on d.id = p.design_id
+where d.published = true;
+```
+
+**`original_path` is omitted.** Exposing it handed visitors the storage path of the full-resolution
+original, which FR-010 forbids outright. The published gate means a draft's photo rows are invisible.
 
 ---
 
@@ -171,13 +232,38 @@ extra request (research D5).
 **Cascade on design deletion** is correct here and deliberately differs from `inquiry` below: photos
 are part of the design, inquiries are not.
 
-**RLS**: Owner full access via join to the parent design's `owner_id`. Anonymous `SELECT` permitted
-**only** for photos whose parent design is published — the same gate as `public_designs`, so a draft's
-photos are unreachable even with a direct storage-path guess.
+**RLS**: Owner full access via join to the parent design's `owner_id`. **Anonymous `SELECT` is denied on
+this table**; public reads go through `public_photos`.
 
-**Storage**: `originals/{design_id}/{photo_id}.{ext}` in a **private** bucket (designer-only, FR-010);
-`display/{design_id}/{photo_id}.webp` in a **public** bucket (FR-009). Public surfaces reference the
-display bucket exclusively.
+### Storage and image delivery (FR-009a)
+
+| Bucket | Visibility | Contents |
+|---|---|---|
+| `originals` | **private** | `originals/{design_id}/{photo_id}.{ext}` — never served to a visitor (FR-010) |
+| `display` | **private** | `display/{design_id}/{photo_id}.webp` — compressed variants (FR-009) |
+
+**Both buckets are private.** Visitors receive images through an application route,
+`/img/{photo_id}/{width}`, which on every request:
+
+1. looks the photo up in `public_photos` — so an unpublished or deleted design yields nothing;
+2. returns an identical 404 if there is no row;
+3. otherwise issues a short-lived (60-second) signed URL for the display object and redirects to it.
+
+> **Why not a public `display` bucket.** A public bucket was the original design and it broke FR-023. RLS
+> gates the `photo` *table*, not the storage object, so once a design had been published its image URL
+> was disclosed permanently — moving the design back to draft removed it from the storefront while the
+> photograph itself stayed downloadable forever by anyone who had the link. The route re-checks
+> publication on every request, so revocation is immediate; the 60-second signature window is the only
+> residual exposure, and it cannot be renewed once the design is unpublished.
+>
+> The cost is that image requests hit the application rather than the CDN edge directly. At the launch
+> scale of 50 designs this is immaterial (Principle V), and the route response is cacheable with a short
+> TTL keyed on publication state.
+
+**Deletion removes files, not just rows.** The `photo` row cascades when its design is deleted, but a
+cascade does not touch object storage. Deleting a design MUST also delete both the `originals/{design_id}/`
+and `display/{design_id}/` prefixes (FR-019). Without that, a deleted design's photographs would remain in
+the bucket indefinitely — recoverable by anyone who could obtain a signed URL, and a silent privacy debt.
 
 ---
 
@@ -193,7 +279,7 @@ Created by an unauthenticated visitor; readable only by the designer (FR-046).
 | `visitor_name` | `text` | not null, 1–120 chars | FR-037 |
 | `visitor_email` | `text` | not null, format-validated | FR-037 |
 | `message` | `text` | nullable, ≤ 2000 chars | FR-037 |
-| `read` | `boolean` | not null, default `false` | FR-038 |
+| `read` | `boolean` | not null, default `false` — **written by nothing in v1** | FR-038 |
 | `delivery_state` | enum | not null, default `pending` | FR-040b |
 | `delivery_attempts` | `integer` | not null, default 0 | FR-040a |
 | `acknowledged` | `boolean` | not null, default `false` | FR-040c |
@@ -221,15 +307,31 @@ readable in the v1.1 inbox.
 `created_at` for the rate-limit count. Retaining a hash rather than an IP means the row holds no more
 identifying data than the visitor deliberately submitted.
 
-**Retention**: none. Rows persist until the designer deletes them (FR-045). No scheduled purge exists
-in v1.
+**Retention**: no automatic expiry in v1. Rows persist indefinitely; manual deletion arrives with the
+v1.1 inbox, since FR-042 gives v1 no surface offering it (FR-045).
 
 **RLS**:
-- Anonymous `INSERT` — permitted, and it is the **only** anonymous write in the system (FR-004,
-  Principle I). Guarded by the rate limit and honeypot before it is reached.
-- Anonymous `SELECT` — **denied**. A visitor cannot read any inquiry, including their own; there is no
+
+- Anonymous `INSERT` — **denied.** Writes happen only in the submission route, using a server-side key,
+  after the honeypot and rate-limit checks have passed (FR-041c).
+- Anonymous `SELECT` — denied. A visitor cannot read any inquiry, including their own; there is no
   session to scope it to and FR-046 forbids exposing who has inquired.
 - Owner `SELECT`/`UPDATE`/`DELETE` where the inquiry belongs to their designs or is orphaned.
+
+> **Why anonymous `INSERT` had to go.** The original design granted it, with the honeypot and rate limit
+> living in the route handler. But the anon key is published in the browser bundle by necessity — so a bot
+> could POST straight to the data layer's REST endpoint, skip the route entirely, and write unlimited
+> inquiries while setting `sender_hash`, `delivery_state`, and `design_title_snapshot` to anything it
+> liked. FR-041 and FR-041a were enforced only for clients that chose to cooperate.
+>
+> A `SECURITY DEFINER` RPC callable by anon does not fix this either: the rate limit keys on
+> `sender_hash`, which Postgres cannot derive itself, so a caller passing its own hash could evade the
+> limit by varying it. Making the server the only writer is the one arrangement where the checks cannot
+> be routed around — which is the "structural, not disciplinary" standard the plan sets for itself.
+
+**Server-side write path**: the route computes `sender_hash` from the request IP, enforces the honeypot
+and both rate-limit windows, captures `design_title_snapshot`, and only then inserts. The service-role
+key used for this insert is server-only and MUST NOT reach any client bundle.
 
 ---
 
@@ -248,20 +350,44 @@ no data — so it can neither be used to modify a design nor to probe whether a 
 
 | Parent deleted | Child behaviour | Why |
 |---|---|---|
-| `design` → `photo` | **Cascade** | Photos are constituent parts of the design |
+| `design` → `photo` | **Cascade** (rows) **+ explicit file deletion** | Photos are constituent parts of the design; a row cascade does not touch object storage |
 | `design` → `inquiry` | **Set null**, snapshot retained | FR-044: a real lead must outlive the piece |
 | `category` → `design` | **Restricted** | Prevents a design silently losing its category |
 | `designer` → everything | Cascade | Single-owner account; removal means removing the site |
+
+## Anonymous access surface
+
+The complete list of what an unauthenticated caller can reach. Anything not on it is denied.
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `public_designs` | view, read | Published only; `notes` absent |
+| `public_designer_profile` | view, read | `email` absent |
+| `public_categories` | view, read | Published-gated; `owner_id` absent |
+| `public_photos` | view, read | Published-gated; `original_path` absent |
+| `increment_design_view(slug)` | function, write | Increments one counter on a published row; returns nothing |
+| `/img/{photo_id}/{width}` | route, read | Re-checks publication, then 60s signed URL |
+
+**No base table is anonymously readable. No table is anonymously writable.** Inquiry submission is
+server-mediated (FR-041c), so it does not appear here.
 
 ## Requirements traceability
 
 | Requirement | Enforced by |
 |---|---|
 | FR-021 (draft by default) | `design.published` default `false` |
-| FR-022, FR-023 (drafts invisible, indistinguishable) | `public_designs` filter + absent anonymous RLS policy |
+| FR-022, FR-023 (drafts invisible, indistinguishable) | Published gate on all four public views + no anonymous policy on any base table |
 | FR-023a/b (non-enumerable, stable slug) | `slug` unique + insert-only trigger |
 | FR-024 (`notes` never public) | Column omitted from `public_designs` |
+| FR-025a (explicit projections) | Four column-listed views; zero anonymous table grants |
+| FR-009a (image access revoked on unpublish) | Private buckets + `/img` route re-checking `public_photos` per request |
+| FR-010 (originals never public) | `original_path` omitted from `public_photos`; `originals` bucket private |
+| FR-019 (delete removes files) | Explicit deletion of both storage prefixes alongside the row cascade |
+| FR-030a (filter options from published only) | `public_categories` join to published designs |
 | FR-012b (alt text always present) | Render-time fallback from title + position |
+| FR-013a (no zero-photo design) | Design not inserted until one photo is processed |
+| FR-014 (last-updated maintained) | `BEFORE UPDATE` touch trigger on `design` and `designer` |
+| FR-041/041a/041c (abuse checks unbypassable) | No anonymous `INSERT`; server-only write after checks |
 | FR-043/044/045 (inquiry survives, no expiry) | `on delete set null` + snapshot; no purge job |
 | FR-046 (inquiries private) | No anonymous `SELECT` policy on `inquiry` |
 | FR-003 (server-side ownership) | RLS `owner_id = auth.uid()` on every owner policy |
