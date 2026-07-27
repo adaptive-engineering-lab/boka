@@ -309,8 +309,11 @@ an edge function on Netlify, and this project has middleware (it protects `/stud
 unavoidable. Installing `@opentelemetry/api` at the declared peer range resolves it. With no exporter
 configured OpenTelemetry defaults to a no-op, so nothing is traced and nothing is sent anywhere.
 
-**Secrets scanning flags `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.** It is in the client bundle because
-it is *supposed* to be — it is subject to RLS and is what every visitor's browser holds.
+**Secrets scanning flags `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` *and* `NEXT_PUBLIC_SUPABASE_URL`.**
+Both are found inlined in the middleware edge bundle, and both belong there: `middleware.ts` calls
+`supabaseConfigOrNull()`, and Next substitutes `NEXT_PUBLIC_*` at build time by design. The key is
+subject to RLS and is what every visitor's browser holds; the URL is the public API endpoint every
+request already goes to. Omit **both** — a list naming only the key fails the next build on the URL.
 
 > **Fix it with `SECRETS_SCAN_OMIT_KEYS`, naming that key. Do not set `SECRETS_SCAN_ENABLED=false`,
 > and do not add broad `SECRETS_SCAN_OMIT_PATHS`.** Either would clear the warning and throw away

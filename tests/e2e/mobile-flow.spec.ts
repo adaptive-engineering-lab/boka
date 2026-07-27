@@ -51,7 +51,12 @@ test('a visitor reaches a design\'s full detail in two taps or fewer', async ({ 
     await setPublished(page, id, true);
 
     // A visitor, with no session — the storefront a real person lands on.
-    const visitorContext = await browser.newContext();
+    //
+    // `hasTouch` is set explicitly rather than inherited from the project. SC-005 counts *taps*,
+    // and `tap()` throws outright when a context has no touch support — so on the desktop project
+    // this asserted nothing and failed for a reason unrelated to the criterion. Enabling touch
+    // runs the real tap path on both engines instead of narrowing the test to one.
+    const visitorContext = await browser.newContext({ hasTouch: true });
     const visitor = await visitorContext.newPage();
 
     try {
@@ -127,24 +132,60 @@ test('every designer-facing page is usable at phone width', async ({ page }) => 
    */
   await signIn(page);
 
+  /*
+   * The role is part of the fixture, not an assumption.
+   *
+   * `/studio`'s "Add a design" is a `<Link>`, and asserting it as a button found nothing — a
+   * failure that read as "the control is off-screen" when the control was there all along. A
+   * viewport test that cannot tell "outside the viewport" from "I looked for the wrong thing" is
+   * worse than no viewport test, because the message points at the wrong file.
+   */
   const surfaces = [
-    ['/studio', 'Your designs', 'Add a design'],
-    ['/studio/designs/new', 'Add a design', 'Save design'],
-    ['/studio/categories', 'Categories', 'Add'],
-    ['/studio/settings', 'Settings', 'Save'],
+    ['/studio', 'Your designs', 'link', 'Add a design'],
+    ['/studio/designs/new', 'Add a design', 'button', 'Save design'],
+    ['/studio/categories', 'Categories', 'button', 'Add'],
+    ['/studio/settings', 'Settings', 'button', 'Save profile'],
   ] as const;
 
-  for (const [path, heading, control] of surfaces) {
+  for (const [path, heading, role, control] of surfaces) {
     await page.goto(path);
     await expect(
       page.getByRole('heading', { name: heading, level: 1 }),
       `${path} did not render its heading`,
     ).toBeVisible();
 
+    const primary = page.getByRole(role, { name: control }).first();
+    // Prove it exists before asking where it is, so the two failures stay distinguishable.
+    await expect(primary, `${path}: no ${role} named "${control}"`).toBeVisible();
+
+    /*
+     * Reachable, not necessarily on the first screen.
+     *
+     * The first version asserted `toBeInViewport()` outright and failed on "Save design" — which
+     * sits at the bottom of a long form, exactly where a submit button belongs. Demanding that
+     * every control fit the initial viewport is not a usability requirement, it is a demand that
+     * forms be short. Scrolling to it and *then* checking still catches the real defect: a
+     * control that cannot be brought into view at all, because something clips or overlays it.
+     */
+    await primary.scrollIntoViewIfNeeded();
     await expect(
-      page.getByRole('button', { name: control }).first(),
-      `${path}: the "${control}" control is outside a phone viewport`,
+      primary,
+      `${path}: the "${control}" ${role} cannot be scrolled into view`,
     ).toBeInViewport();
+
+    /*
+     * Horizontal clipping is the failure that actually strands a designer on a phone. Below the
+     * fold is a scroll away; off the right edge is unreachable, and invisible to a desktop test.
+     */
+    const box = await primary.boundingBox();
+    const viewport = page.viewportSize();
+    if (box && viewport) {
+      expect(box.x, `${path}: "${control}" starts off the left edge`).toBeGreaterThanOrEqual(-1);
+      expect(
+        Math.round(box.x + box.width),
+        `${path}: "${control}" extends past the right edge of a ${viewport.width}px screen`,
+      ).toBeLessThanOrEqual(viewport.width + 1);
+    }
 
     // Nothing may overflow horizontally: a designer should never have to pan sideways to reach
     // a control, and a horizontal scrollbar on a phone is how that starts.

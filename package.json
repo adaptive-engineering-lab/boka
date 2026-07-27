@@ -17,7 +17,9 @@
     "db:reset": "supabase db reset",
     "db:start": "supabase start"
   },
+  "//dependencies": "@opentelemetry/api is here for the Netlify build, not for tracing. Next declares it as an OPTIONAL peer dependency and imports it from the edge runtime; Netlify deploys Next middleware as an edge function and its esbuild bundler tries to resolve the import regardless of the optional marker, failing the build with 'Could not resolve @opentelemetry/api'. This project has middleware (it gates /studio), so the path is unavoidable. Pinned exactly inside Next's ^1.1.0 range. With no exporter configured OpenTelemetry is a no-op, so nothing is traced and nothing leaves the process. Remove it only if middleware is removed or Netlify honours the optional peer.",
   "dependencies": {
+    "@opentelemetry/api": "1.9.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
     "next": "^15.1.3",

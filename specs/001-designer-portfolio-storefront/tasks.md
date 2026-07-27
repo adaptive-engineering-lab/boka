@@ -339,7 +339,7 @@ insert with the anon key and confirm rejection.
 - [X] T079 [P] Seed 50 designs averaging 3 photos and measure LCP at a 400 kbps / 400 ms RTT profile, filter/sort latency, and cumulative layout shift (SC-004, SC-009, SC-012) in ~~`tests/perf/seed-and-measure.ts`~~ — *split across `tests/perf/seed.ts` and `tests/e2e/storefront.perf.spec.ts`; see Phase 8 for the results and the reason for the path change*
 - [X] T080 Create the public-surface review checklist that any change touching a public route, public view, or the `published` flag must pass before merge (constitution Quality Gates) in `specs/001-designer-portfolio-storefront/checklists/public-surface-review.md`
 - [X] T081 Disable public sign-up and provision the single owner account, recording the steps in `supabase/config.toml` — *hosted provisioning runbook in `quickstart.md`; the hosted half is done by hand and is not satisfied by the local config alone*
-- [ ] T082 Exercise every designer-facing flow at mobile viewport width, **timing the capture-to-publish flow (SC-001) and counting taps from homepage to detail (SC-005)**, and tick off the smoke checklist in `specs/001-designer-portfolio-storefront/quickstart.md`
+- [ ] T082 Exercise every designer-facing flow at mobile viewport width, **timing the capture-to-publish flow (SC-001) and counting taps from homepage to detail (SC-005)**, and tick off the smoke checklist in `specs/001-designer-portfolio-storefront/quickstart.md` — *automated half complete in `tests/e2e/mobile-flow.spec.ts` (6/6); **deliberately left open** for the human pass, see the note under Phase 8*
 
 > **T076 must precede T077 and T078.** Ordering the accessibility tests before any implementation task
 > would leave them failing with no owner for the fixes — the previous task list had exactly that gap.
@@ -505,7 +505,7 @@ private` by design, so no CDN may cache it and every tile is a function invocati
 - [X] T092 `RATE_LIMIT_SALT` production guard in `lib/inquiries/rate-limit.ts`
 - [X] T081 `[auth.email] enable_signup = false`, verified by probe; hosted owner-account runbook in `quickstart.md`
 - [X] T093 `netlify.toml` with a build-time HEIC gate; environment runbook in `quickstart.md`
-- [X] T082 Mobile pass — tap count, flow timing, viewport usability — in `tests/e2e/mobile-flow.spec.ts`
+- [~] T082 Mobile pass — tap count, flow timing, viewport usability — in `tests/e2e/mobile-flow.spec.ts` — **automated half only**
 
 > **T079's real finding was not a number, it was which element the number described.**
 >
@@ -594,6 +594,31 @@ private` by design, so no CDN may cache it and every tile is a function invocati
 > starts add more. Re-measure after deploy, and if per-image cost approaches the low seconds, build
 > the cache — with **flat** `{designId}/{photoId}-{width}.webp` names, so the existing non-recursive
 > `deleteDesignFiles` sweep still finds them and FR-019 does not regress.
+
+<!-- -->
+> ### T082 is marked `[~]`, not `[X]`, and that is the honest state
+>
+> `mobile-flow.spec.ts` passes 6/6 and settles the parts a machine can settle: **SC-005's tap count**
+> (one tap, homepage → full detail, asserted on a touch-enabled context on both engines), no
+> horizontal overflow at 390 px, and every primary control reachable and unclipped.
+>
+> **SC-001 is not settled and cannot be by this test.** It claims a *person* can photograph, describe
+> and publish a piece in under three minutes. The automated flow completes in **1.3 s**, which proves
+> only that system latency leaves the budget essentially untouched — a floor, not the measurement.
+> Passing does not establish SC-001; failing would have disproved it. The remaining work is a real
+> run on a real phone, plus the `quickstart.md` smoke checklist, and it is the user's to do.
+>
+> Two defects in the spec itself were fixed before it passed, both of which had made it assert less
+> than it appeared to. `tap()` throws on a context without touch, so the desktop project was failing
+> for a reason unrelated to the criterion rather than testing it. And `/studio`'s "Add a design" is a
+> `<Link>`; asserting it as a `button` produced *"the control is outside a phone viewport"* when the
+> control was present and on screen — a message pointing at the wrong file entirely. The spec now
+> proves a control exists before asking where it is, so those two failures stay distinguishable.
+>
+> The `toBeInViewport()` assertion was also wrong as first written: it failed on "Save design", which
+> sits at the foot of a long form exactly where a submit button belongs. Demanding that every control
+> fit the initial viewport is a demand that forms be short. It now scrolls into view first, which
+> still catches the real defect — a control that cannot be brought into view at all.
 
 ---
 
