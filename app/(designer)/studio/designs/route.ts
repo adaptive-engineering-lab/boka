@@ -26,7 +26,43 @@ export const maxDuration = 60;
 const PHOTO_FIELD = 'photo';
 const ALT_FIELD = 'photoAlt';
 
+/**
+ * Turns an unexpected throw into a JSON answer the form can actually show.
+ *
+ * Without this the failure mode is genuinely bad, and it cost real debugging time on the first
+ * deploy. `createDesign` reaches `createAdminClient()`, which **throws** when
+ * `SUPABASE_SERVICE_ROLE_KEY` is unset. Nothing caught it, so Next answered with an HTML 500,
+ * the client's `response.json()` found no `error` field, and the designer saw *"The design could
+ * not be saved. Try again."* — advice that could never work, for a misconfiguration she cannot
+ * see and trying again cannot fix.
+ *
+ * The message is surfaced rather than swallowed because this route is behind the session gate
+ * on a single-owner product: the only person who can read it is the one who needs it. It names
+ * the missing variable, never its value.
+ */
+function unexpected(error: unknown): NextResponse {
+  const message = error instanceof Error ? error.message : String(error);
+  // Server-side too, so it is in the platform logs even if the client never reports it.
+  console.error('[studio/designs] create failed', error);
+
+  return NextResponse.json(
+    {
+      ok: false,
+      error: `The design could not be saved because the server hit an unexpected error: ${message}`,
+    },
+    { status: 500 },
+  );
+}
+
 export async function POST(request: Request) {
+  try {
+    return await handlePost(request);
+  } catch (error) {
+    return unexpected(error);
+  }
+}
+
+async function handlePost(request: Request) {
   let form: FormData;
   try {
     form = await request.formData();

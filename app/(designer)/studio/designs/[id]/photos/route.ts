@@ -13,7 +13,23 @@ import { addPhotosToDesign, type CreateDesignPhoto } from '@/lib/data/designer-d
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  // Same reasoning as the create route: an uncaught throw here becomes an HTML 500, the client
+  // finds no `error` field, and the designer is told to "try again" about a misconfiguration
+  // that retrying cannot fix. `addPhotosToDesign` reaches the admin client too.
+  try {
+    return await handlePost(request, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[studio/designs/:id/photos] add failed', error);
+    return NextResponse.json(
+      { ok: false, error: `The photos could not be added: ${message}` },
+      { status: 500 },
+    );
+  }
+}
+
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   let form: FormData;
