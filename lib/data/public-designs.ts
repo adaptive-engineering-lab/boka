@@ -90,14 +90,47 @@ const DETAIL_WIDTH = 1280;
 const GRID_CANDIDATE_WIDTHS = [320, 480, 640] as const;
 const DETAIL_CANDIDATE_WIDTHS = [640, 828, 1080, 1280] as const;
 
-function imageSrcSet(photoId: string, widths: readonly number[], intrinsicWidth: number): string {
-  // Never offer a candidate wider than the source. `/img` refuses to upscale, so a 1280w
+/** Exported for `tests/integration/srcset.test.ts` — the width arithmetic is subtle enough
+ *  that it was wrong once, and it is pure, so it is worth testing directly. */
+export function imageSrcSet(
+  photoId: string,
+  widths: readonly number[],
+  intrinsicWidth: number,
+): string {
+  // Never label a candidate wider than the source. `/img` refuses to upscale, so a 1280w
   // candidate for a 900px photo would return 900px bytes under a 1280w label and the browser
-  // would make its choice on a false premise.
+  // would choose on a false premise.
   const usable = widths.filter((width) => width <= intrinsicWidth);
-  const candidates = usable.length > 0 ? usable : [Math.min(...widths)];
+  const candidates = usable.map((width) => `${imageUrl(photoId, width)} ${width}w`);
 
-  return candidates.map((width) => `${imageUrl(photoId, width)} ${width}w`).join(', ');
+  /*
+   * A source narrower than the largest candidate still deserves to be offered at full size.
+   *
+   * Filtering alone was a quality regression, caught on the live site: a 477px-wide cover photo
+   * matched only the 320w candidate, so the browser had nothing better to pick and rendered it
+   * at 320px — softer than the 477px that existed. Before `srcset`, the plain `src` asked for
+   * 640 and the route's no-upscale fast path returned the full 477.
+   *
+   * So add one more candidate: the narrowest allowed width **above** the source, labelled with
+   * the source's real width. The URL asks for 640; the route returns 477px bytes untouched; the
+   * descriptor says 477w. Every part of that is true, which is what the filter above is
+   * protecting — the descriptor must describe the bytes that arrive, not the number in the path.
+   */
+  const largestUsable = usable.length > 0 ? Math.max(...usable) : 0;
+  if (largestUsable < intrinsicWidth) {
+    const nextUp = widths.find((width) => width > intrinsicWidth);
+    if (nextUp !== undefined) {
+      candidates.push(`${imageUrl(photoId, nextUp)} ${intrinsicWidth}w`);
+    }
+  }
+
+  // A source narrower than every allowed width still needs something to point at.
+  if (candidates.length === 0) {
+    const smallest = Math.min(...widths);
+    return `${imageUrl(photoId, smallest)} ${intrinsicWidth}w`;
+  }
+
+  return candidates.join(', ');
 }
 
 interface RawPhoto {

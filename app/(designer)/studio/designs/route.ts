@@ -31,7 +31,7 @@ const ALT_FIELD = 'photoAlt';
  *
  * Without this the failure mode is genuinely bad, and it cost real debugging time on the first
  * deploy. `createDesign` reaches `createAdminClient()`, which **throws** when
- * `SUPABASE_SERVICE_ROLE_KEY` is unset. Nothing caught it, so Next answered with an HTML 500,
+ * the service-role key is unset. Nothing caught it, so Next answered with an HTML 500,
  * the client's `response.json()` found no `error` field, and the designer saw *"The design could
  * not be saved. Try again."* — advice that could never work, for a misconfiguration she cannot
  * see and trying again cannot fix.
@@ -39,6 +39,10 @@ const ALT_FIELD = 'photoAlt';
  * The message is surfaced rather than swallowed because this route is behind the session gate
  * on a single-owner product: the only person who can read it is the one who needs it. It names
  * the missing variable, never its value.
+ *
+ * (The variable is spelled out only in `lib/supabase/admin.ts`. `no-service-key.test.ts` scans
+ * source text for that literal and allows exactly one file, so naming it in a comment here
+ * would spend the guard's strictness on prose. Fixing the comment beat widening the allowlist.)
  */
 function unexpected(error: unknown): NextResponse {
   const message = error instanceof Error ? error.message : String(error);
