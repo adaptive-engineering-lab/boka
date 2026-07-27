@@ -322,6 +322,17 @@ request already goes to. Omit **both** — a list naming only the key fails the 
 > which `tests/integration/no-service-key.test.ts` cannot do. Two independent gates on the project's
 > worst failure mode is worth keeping; trading one away to silence an expected finding is not.
 
+### `0015` was applied out of band — expect it twice
+
+`0015_revoke_view_writes.sql` closed a **live vulnerability** (anonymous `DELETE` on published
+designs, see tasks.md T095) and was applied straight to the hosted project rather than waiting for a
+deploy. Supabase recorded it as `20260727103944 / revoke_view_writes`, so the repo's `0015` still
+looks unapplied and `supabase db push` will run it again.
+
+That is harmless — it is `revoke`, `grant` and an assertion, all idempotent — and it leaves two rows
+in `supabase_migrations.schema_migrations` for one change. Worth knowing so the duplicate is a
+recorded fact rather than a mystery.
+
 ### Provisioning the owner account
 
 `supabase/seed.sql` does not run against a hosted project, so the single account is created by hand:

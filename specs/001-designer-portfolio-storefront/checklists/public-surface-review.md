@@ -27,7 +27,7 @@ by a design that had already passed a Constitution Check.
 >
 > Verified against a **production build**, not `next dev` — see the note under "Tests" below.
 > Marks below refer to that run.
-
+<!-- -->
 > ### Run 2 — the `/img` amendment (2026-07-27)
 >
 > `/img`, `/studio/img` and `/img/profile` stopped redirecting to signed URLs and now return the
@@ -49,7 +49,7 @@ by a design that had already passed a Constitution Check.
 > suite ran against stale code — the amended route was already written and the tests still observed
 > the old 302. The dangerous version of that is a mandatory gate passing green against a build that
 > no longer exists. The production path now refuses to reuse a running server.
-
+<!-- -->
 > ### Run 3 — session lifecycle and the owner bar (2026-07-27)
 >
 > FR-001a (ending a session) and FR-002a (the designer's way back from the storefront). FR-002a is a
@@ -71,7 +71,7 @@ by a design that had already passed a Constitution Check.
 > revocation check sat behind an `if (session)` that never ran, and the test passed having verified
 > nothing. It now reads the cookie, asserts the token was extracted before using it, and was checked
 > adversarially: the token refreshes with **200 before** sign-out and **400 after**.
-
+<!-- -->
 > ### Run 4 — US3, the inquiry surface (2026-07-27)
 >
 > The first submission a visitor can make anywhere on this site, so the whole checklist was
@@ -165,15 +165,40 @@ by a design that had already passed a Constitution Check.
 > output could pass while production leaked. `E2E_DEV=1` opts back into the dev server for
 > iterating on non-privacy specs only.
 
+### Run 5 — write privileges on the public views (2026-07-27)
+
+Triggered by a **live vulnerability**, not by a code change. Everything ticked in Runs 1–4 still
+holds. One item is new, and it is the item this checklist most needed:
+
+- [X] **The public views accept no writes from `anon` or `authenticated`** *(new in Run 5, T095)*
+      — verified from outside over HTTP with the publishable key, not by reading a grant.
+      Before the fix: `PATCH public_designer_profile` → **200**, `DELETE public_designs` → **204**.
+      After `0015_revoke_view_writes.sql`: both **401**, with all four `SELECT`s still 200.
+      Guarded by `tests/integration/public-view-writes.test.ts`.
+
+> **Every question on this checklist, for four runs, was about reading.** "Does this view expose
+> `notes`?" "Can a visitor see a draft?" "Is `original_path` absent?" All correct, all necessary,
+> and all silent on whether a projection built for reading would *accept a DELETE*. It did.
+>
+> So the standing instruction below is amended: for every reachable surface, ask what it
+> **returns** and what it **accepts**. A read-only view is only read-only if someone revoked the
+> writes.
+
 ## Reviewer note
 
-The three defects this gate exists to catch were all invisible to table-level reasoning:
+The four defects this gate exists to catch were all invisible to table-level reasoning:
 
 1. A **public storage bucket** meant images outlived their design's publication — RLS protected the
    `photo` row while the object stayed world-readable.
 2. **Anonymous grants on `category` and `photo`** leaked `owner_id` and `original_path` and let a visitor
    enumerate draft-only categories.
 3. **Anonymous `INSERT` on `inquiry`** let a bot skip the submission route and its abuse checks entirely.
+4. **Anonymous `UPDATE`/`DELETE` on the public views** let a visitor rewrite the designer's profile and
+   destroy published designs. Three individually-sound facts combined: Supabase's default privileges
+   granted ALL on the views at creation; two of them are simple enough to be *automatically updatable*;
+   and they run as an owner that bypasses RLS. Migration 0007 had asserted the base tables were locked,
+   which was true and answered a different question.
 
 The common thread: each was correct at the layer it was reviewed at, and wrong end to end. Evaluate
-per reachable surface — table, view, route, and stored object — not per table.
+per reachable surface — table, view, route, and stored object — not per table. And for each, ask both
+what it returns **and what it accepts**.

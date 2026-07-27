@@ -506,7 +506,62 @@ private` by design, so no CDN may cache it and every tile is a function invocati
 - [X] T081 `[auth.email] enable_signup = false`, verified by probe; hosted owner-account runbook in `quickstart.md`
 - [X] T093 `netlify.toml` with a build-time HEIC gate; environment runbook in `quickstart.md`
 - [~] T082 Mobile pass — tap count, flow timing, viewport usability — in `tests/e2e/mobile-flow.spec.ts` — **automated half only**
+- [X] T095 **CRITICAL, found live** — revoke `anon`/`authenticated` write privileges on the four public views in `supabase/migrations/0015_revoke_view_writes.sql`, with an outside-in guard in `tests/integration/public-view-writes.test.ts`
 
+> ### ⚠ T095 — anonymous visitors could delete published designs (2026-07-27)
+>
+> Found while wiring up the hosted project, not by any test. An anonymous caller holding only
+> the **publishable key that ships in every page's JavaScript** could `DELETE` published designs
+> and rewrite the designer's profile.
+>
+> Measured against the live project before the fix, with filters matching zero rows so nothing
+> was altered:
+>
+> | Request as `anon` | Before | After |
+> | --- | --- | --- |
+> | `PATCH /rest/v1/public_designer_profile` | **200 accepted** | 401 permission denied |
+> | `DELETE /rest/v1/public_designs` | **204 accepted** | 401 permission denied |
+> | `PATCH /rest/v1/design` (base table, control) | 401 denied | 401 denied |
+> | `SELECT` on all four views | 200 | 200 |
+>
+> The control is what makes this conclusive: **0007 worked.** The base tables were properly
+> locked. The hole was one layer out, and needed three individually-defensible facts to align:
+>
+> 1. Supabase's default privileges grant ALL on new objects in `public` to `anon`, so the views
+>    inherited write access on creation. 0007 revoked on base tables and stopped, because
+>    "the views expose only safe columns" answered what could be **read**.
+> 2. `public_designs` and `public_designer_profile` are simple single-table selects, making them
+>    **automatically updatable** — Postgres rewrites a view write into a base-table write.
+> 3. The views are owned by `postgres` (which holds `rolbypassrls`) and are not
+>    `security_invoker`, so the rewritten statement **skips RLS entirely**.
+>
+> `security_invoker = true` is not the fix. These views are deliberately owner-executed so an
+> anonymous caller can read published rows while holding no privilege on the base tables — that
+> is the whole design in D3 and 0008. Turning it on would break every public read. The fix is
+> removing write privileges that should never have been granted.
+
+<!-- -->
+> **Why every existing gate missed it, which is the part worth keeping.**
+>
+> Migration 0007 asserts that `anon` holds no DML on the four base tables. That assertion is
+> true, it passed, and it was answering a different question. The public-surface review asked
+> what the views *expose*. `filter-leakage`, `notes-privacy` and `draft-invisibility` all probe
+> what a visitor can **read**. Nine surfaces of axe, 53 end-to-end specs, and four checklist
+> runs, and not one of them ever sent a `DELETE`.
+>
+> The lesson is not "add more tests". It is that a projection designed for reading was never
+> assessed as a **write surface**, because nothing in the vocabulary of the review prompted the
+> question. `tests/integration/public-view-writes.test.ts` now asks it from outside over HTTP,
+> with the public key, which is the only vantage point that would have found this — a SQL
+> privilege assertion is the same kind of check that missed it for two phases.
+>
+> **A vacuity bug in that very test was caught and fixed during the same hour.** It first
+> filtered every view on `id`; `public_designer_profile` has no `id`, PostgREST answers an
+> unknown column with **400**, and the assertion accepted `>= 400` as "refused". So it passed on
+> that view while proving nothing — a malformed request read as a permission denial. Fixed with
+> per-view columns and an enumerated refusal set (`401/403/405/500`), so an unexpected 400 now
+> fails loudly. The read control is what exposed it, by demanding exactly 200.
+<!-- -->
 > **T079's real finding was not a number, it was which element the number described.**
 >
 > The first measurement reported **LCP 1,100 ms against a 3,000 ms budget** and would have been
