@@ -38,3 +38,6 @@ yarn-error.log*
 # Vercel / build metadata
 .vercel
 *.tsbuildinfo
+
+# Playwright MCP session artifacts (snapshots, console logs, screenshots)
+.playwright-mcp/
