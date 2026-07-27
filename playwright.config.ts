@@ -3,6 +3,17 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = process.env.PORT ?? '3000';
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 
+/**
+ * Performance specs, matched once and used in three places so they cannot drift apart.
+ *
+ * The `throttled` project selects them; `mobile` and `desktop` must **ignore** them. Without
+ * that exclusion a perf spec runs in all three projects — twice with no throttling at all,
+ * where every budget passes trivially and the run reports three results for one measurement.
+ * A green unthrottled LCP is not weaker evidence than no evidence; it is worse, because it
+ * looks like evidence.
+ */
+const PERF_SPECS = /\.perf\.spec\.ts$/;
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -24,10 +35,12 @@ export default defineConfig({
       // exercised at mobile width before a feature counts as done.
       name: 'mobile',
       use: { ...devices['iPhone 14'] },
+      testIgnore: PERF_SPECS,
     },
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: PERF_SPECS,
     },
     {
       // SC-004 / SC-009: LCP under 3s at 400 kbps down, 400 ms RTT.
@@ -35,7 +48,7 @@ export default defineConfig({
       // performance specs can be selected and run on their own.
       name: 'throttled',
       use: { ...devices['Desktop Chrome'] },
-      testMatch: /.*\.perf\.spec\.ts/,
+      testMatch: PERF_SPECS,
     },
   ],
 

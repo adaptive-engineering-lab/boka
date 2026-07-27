@@ -239,7 +239,17 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
-enable_signup = true
+#
+# FALSE, matching the global `enable_signup` above.
+#
+# This is defence in depth, not the closing of an open hole — measured, the global flag
+# already wins: POST /auth/v1/signup answers `422 signup_disabled` with this set either way.
+# It is set false so that the two flags cannot disagree, because the failure mode is quiet.
+# Anyone flipping the global flag on for a moment — to provision an account, to debug a login —
+# would silently open email self-registration to the whole internet, and Principle I's premise
+# is that no second account should ever exist. One gate is enough until the day somebody
+# touches it.
+enable_signup = false
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true

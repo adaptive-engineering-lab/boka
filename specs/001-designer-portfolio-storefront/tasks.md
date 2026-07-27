@@ -126,7 +126,7 @@ on a second device, confirm parity. Edit one field and delete a second design; b
 > unmistakably — "Private notes — only you see this" against "Public description — visitors see this".
 > FR-025 gives no per-design override, so the form is the only place this can be communicated, and
 > getting it wrong is how private measurements reach the public internet.
-
+<!-- -->
 > ### ✓ US1 verified against a live stack (2026-07-26)
 >
 > All 19 tasks implemented; `typecheck`, `lint`, `build`, 11 integration tests and 3 end-to-end
@@ -138,7 +138,7 @@ on a second device, confirm parity. Edit one field and delete a second design; b
 > invisible to the phase that introduced it:
 >
 > | Defect | Why it was invisible | Fix |
-> |---|---|---|
+> | --- | --- | --- |
 > | `authenticated` and `service_role` held **no SELECT/INSERT/UPDATE/DELETE on any base table** — the designer could not read or write a single row. Supabase's permissive default privileges are registered `FOR ROLE supabase_admin`, but migrations run as `postgres`, whose `public`-schema defaults grant only TRUNCATE/REFERENCES/TRIGGER. | Phase 2's verification asked whether anonymous callers were *refused* and whether the views were *gated*. Both passed. Nothing asked whether the owner could still get in — the assumed failure mode of a privacy-first schema is "too open". | `0011_grants_authenticated.sql`, with assertions in both directions: anon still holds no DML, **and** the owner does. |
 > | The local seed left `auth.users` token columns NULL, so every sign-in failed with a 500 and the opaque message "Database error querying schema". | The row looks entirely correct in psql. GoTrue reads those columns into Go strings, which cannot hold NULL — and only a hand-written `auth.users` insert can produce it. | `seed.sql` now writes `''` for all eight token columns. |
 > | Playwright's `webServer` probed `/`, which has no page until T052, so the whole suite timed out before running. | Playwright treats 404 as "not ready". Nothing had run the suite yet. | Readiness now probes `/auth/sign-in`. |
@@ -182,11 +182,11 @@ direct URL, and their image URLs 404; no private note text appears anywhere in t
 > **T061 must assert against the raw response body, not the rendered DOM.** A field serialized into a
 > hydration payload but never displayed is still a leak, and is precisely the failure this gate exists
 > to catch.
-
+<!-- -->
 > **T060's image-revocation assertion is the one that would have caught the original defect.** The first
 > design served display variants from a public bucket, so a photograph stayed downloadable forever once
 > its design had been published. Nothing in the previous test plan would have noticed.
-
+<!-- -->
 > ### ✓ US2 verified against a production build (2026-07-26)
 >
 > All 13 tasks implemented. 9 end-to-end specs pass on **both** Playwright projects (desktop
@@ -214,7 +214,7 @@ direct URL, and their image URLs 404; no private note text appears anywhere in t
 > be built without them:
 >
 > | Addition | Why | How it is gated |
-> |---|---|---|
+> | --- | --- | --- |
 > | `app/img/profile/route.ts` | FR-028 requires the profile photo on the homepage, and both buckets are private. Embedding a signed URL in the HTML would have worked, but it breaks the property the review checklist asserts — *every* visitor-facing image comes from `/img`. | No publication gate, deliberately: name, bio and photo are public by definition. Reads the path from `public_designer_profile` (no `email`), issues a 60s signed URL into the private `display` bucket. Has its own test. |
 > | `incrementDesignView()` in `public-designs.ts` | T059 needed a data-layer call for the existing `increment_design_view` RPC. | Called only after the publication check passes, and swallows its own errors so a failed counter can never fail a render. |
 >
@@ -288,11 +288,11 @@ insert with the anon key and confirm rejection.
 
 > **T069's ordering is the requirement, not an implementation preference.** The visitor's confirmation
 > must not depend on email delivery: US3 scenario 5 requires a normal confirmation while email is down.
-
+<!-- -->
 > **T065 is why T074's direct-insert assertion matters.** With anonymous `INSERT` granted, a bot could
 > POST straight to the data layer and skip the honeypot and rate limit entirely — the checks would apply
 > only to clients that chose to cooperate.
-
+<!-- -->
 > ### ✓ US3 verified (2026-07-27)
 >
 > All 12 tasks implemented. `typecheck`, `lint`, `build`, **16/16 integration tests** and **38/38
@@ -314,7 +314,7 @@ insert with the anon key and confirm rejection.
 > untouched.
 >
 > | Design point | Why it is that way |
-> |---|---|
+> | --- | --- |
 > | Sweep marks rows; it does not send email | Retry with backoff (FR-040a) lives in `after()` where there is an HTTP client and a key. `pg_net` is installed and *could* POST to Resend, but that would put notification logic in two languages with two credential paths. Principle V. |
 > | Sweep threshold 3 min, cadence 2 min | `after()` finishes in seconds, so 3 minutes pending means stranded. 3 + 2 = 5 worst case, which is SC-006's budget exactly. |
 > | Rate limit fails **open** on a database error | The choice is between allowing an extra submission and dropping a real one. FR-040 is unambiguous, and an inquiry is a person waiting for a reply. |
@@ -333,9 +333,9 @@ insert with the anon key and confirm rejection.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T076 Implement the accessibility pass — visible focus indication, contrast, keyboard operability, form labelling and error association across both surfaces (FR-012c) — in `app/globals.css` and the affected components
-- [ ] T077 [P] E2E accessibility test: zero axe-core WCAG 2.1 AA violations on storefront, detail, and dashboard (SC-013) in `tests/e2e/accessibility.spec.ts`
-- [ ] T078 [P] E2E test: a keyboard-only visitor can browse, open a design, and inquire (SC-014) in `tests/e2e/keyboard.spec.ts`
+- [X] T076 Implement the accessibility pass — visible focus indication, contrast, keyboard operability, form labelling and error association across both surfaces (FR-012c) — in `app/globals.css` and the affected components
+- [X] T077 [P] E2E accessibility test: zero axe-core WCAG 2.1 AA violations on storefront, detail, and dashboard (SC-013) in `tests/e2e/accessibility.spec.ts`
+- [X] T078 [P] E2E test: a keyboard-only visitor can browse, open a design, and inquire (SC-014) in `tests/e2e/keyboard.spec.ts`
 - [ ] T079 [P] Seed 50 designs averaging 3 photos and measure LCP at a 400 kbps / 400 ms RTT profile, filter/sort latency, and cumulative layout shift (SC-004, SC-009, SC-012) in `tests/perf/seed-and-measure.ts`
 - [X] T080 Create the public-surface review checklist that any change touching a public route, public view, or the `published` flag must pass before merge (constitution Quality Gates) in `specs/001-designer-portfolio-storefront/checklists/public-surface-review.md`
 - [ ] T081 Disable public sign-up and provision the single owner account, recording the steps in `supabase/config.toml`
@@ -343,7 +343,41 @@ insert with the anon key and confirm rejection.
 
 > **T076 must precede T077 and T078.** Ordering the accessibility tests before any implementation task
 > would leave them failing with no owner for the fixes — the previous task list had exactly that gap.
-
+<!-- -->
+> ### ✓ T076 — the accessibility pass (2026-07-27)
+>
+> Measured before changing anything. axe-core (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) over eleven
+> surfaces — storefront, detail, the inquiry form in its **error** state, the not-found page, sign-in,
+> dashboard, new design, categories, settings, design edit, and the delete dialog **while open** —
+> returned **zero violations before any fix**. The incremental work through Phases 3–5 had already
+> covered labelling, contrast and error association.
+>
+> **One real defect, which axe cannot see and which every static check passes: the skip link bypassed
+> nothing.** `href="#main"` pointed at a `<div>` in the root layout. A browser scrolls to a
+> non-focusable anchor target but leaves focus on `<body>`, so the next Tab resumed at the top of the
+> document — measurably, on the studio surface the Tab after activating "Skip to content" landed on
+> `Studio`, the first nav link. The wrapper also enclosed the studio header, so it was the wrong target
+> even in principle. Fixed by moving `id="main"` onto each page's own `<main>` with `tabIndex={-1}`; the
+> Tab after skipping now reaches `Add a design`. That before/after is the assertion T078 inherits.
+>
+> Verified as already correct, so left alone: focus indicators resolve to `2px solid rgb(17, 24, 39)` on
+> both text inputs and dark primary buttons; the delete dialog opens from the keyboard, moves focus
+> inside, closes on Escape and restores focus to its trigger (native `<dialog>` earning its keep); the
+> photo pickers keep a focusable `sr-only` input rather than `hidden`, so a keyboard user can reach
+> them. Studio form errors stay form-level with `role="alert"` — they describe the whole operation
+> ("Some photos were not used"), and tying those to a single field would be wrong; per-field
+> `aria-invalid`/`aria-describedby` lives where per-field validation does, in the inquiry form.
+<!-- -->
+> **The canonicaliser was hardened in the same pass, and not incidentally.** A full run failed
+> `filter-leakage.spec.ts` on two responses that were identical in content: React had packed the `8:`
+> metadata record alongside a module record in one and flushed it separately in the other, and
+> `canonicalizeBody` sorted whole `push()` calls, which cannot reconcile that. It now splits the flight
+> payload into records first, so packing and ordering are both irrelevant. `tests/integration/canonical.test.ts`
+> pins the behaviour in both directions — a leaked record and differing markup must still fail — and
+> three of its eight cases fail against the previous implementation, which is why it is worth having.
+> A privacy gate that fails at random gets re-run until green, and that is indistinguishable from
+> re-running until a real leak is waved through.
+<!-- -->
 > **T080 closes the one constitutional gate with no artifact.** The constitution mandates a
 > public-surface review on every change touching a public route or the `published` flag, but nothing
 > existed to perform it; `checklists/requirements.md` is a spec-quality checklist, not this gate.
@@ -353,9 +387,43 @@ insert with the anon key and confirm rejection.
 > the review, so waiting for Phase 6 would have meant merging the public routes with the mandated
 > check unperformed. The checklist has since been run four times (Runs 1–4: storefront, the `/img`
 > amendment, session lifecycle, and the inquiry surface), and each run is recorded in the file.
-
+<!-- -->
 > **T082 is required, not optional.** The constitution requires designer-facing flows to be exercised at
 > mobile width before a feature counts as done, and SC-001 and SC-005 are otherwise never measured.
+<!-- -->
+> ### ✓ T077 and T078 — the accessibility tests (2026-07-27)
+>
+> `accessibility.spec.ts` scans storefront, detail, dashboard, new design, categories, settings and
+> design edit, plus two states a page-by-page sweep never reaches: the **inquiry form displaying a
+> validation error**, and the **delete dialog while open**. Error association and modal semantics do not
+> exist until they are on screen. Alt text is asserted separately from axe rather than through it: axe's
+> `image-alt` rule accepts `alt=""` as correct marking for a decorative image, and on this site no
+> photograph is decorative — FR-012b's title-and-position fallback exists so none can be announced as
+> nothing.
+>
+> **Both specs guard against passing vacuously.** Every scan is preceded by an assertion that the
+> content under test rendered — an empty storefront and an empty dashboard both pass a WCAG sweep
+> trivially, and would keep passing while the real grid regressed.
+>
+> `keyboard.spec.ts` uses no mouse at all. `click()` focuses and activates an element whether or not a
+> keyboard could reach it, so a clicking test passes against a control that is unreachable by Tab,
+> unlabelled once reached, or absent from the tab order — which is exactly how the skip link shipped
+> broken past axe, lint and review. It also asserts the **honeypot is never a tab stop**: `_website` is
+> `sr-only` rather than `display:none`, one forgotten `tabIndex={-1}` away from being tabbable, and a
+> keyboard user who typed into it would have their message discarded in silence behind a normal
+> confirmation (FR-041a is right for bots and catastrophic for a person).
+>
+> Verified adversarially: stripping `tabIndex={-1}` from the nine `<main>` elements makes
+> `keyboard.spec.ts` fail with *"activating the skip link must move focus into &lt;main&gt;"*. The test
+> catches the defect it was written for.
+<!-- -->
+> **`keyboard.spec.ts` runs on Chromium only, and the gap is real rather than cosmetic.** WebKit omits
+> links from the tab order unless the user has enabled Safari's Full Keyboard Access; measured, the
+> first Tab on the storefront lands on the Category `<select>`, skipping the skip link and every header
+> link. On WebKit these assertions would be testing a Safari preference, and no markup change could
+> make them pass. **Link-based keyboard navigation is therefore unverified on WebKit.** Form controls
+> are in the tab order on every engine, so the inquiry form is still exercised on both projects by
+> `accessibility.spec.ts` and `inquiry.spec.ts`.
 
 ---
 
@@ -380,13 +448,13 @@ Independent of Phase 5 and Phase 6; can be done at any point after Phase 4.
 > So: check for the presence of a Supabase auth cookie first, and only resolve the session when one
 > exists. A visitor carries no such cookie and therefore pays nothing — which is also what makes
 > constraint 3 (an unauthenticated response is unchanged) true by construction rather than by care.
-
+<!-- -->
 > **T086 is the constitutional guard for this phase**, in the same sense T060 and T061 are for Phase 4.
 > FR-002a is a deliberate, narrow exception to "the public surface shows nothing about authentication",
 > and the only thing keeping it narrow is an assertion that an anonymous request sees no difference. The
 > existing draft-invisibility and view-only specs already make every assertion with no session, so they
 > measure the right surface — T086 adds the explicit before/after comparison.
-
+<!-- -->
 > ### ✓ Phase 7 verified (2026-07-27)
 >
 > All 4 tasks implemented; `typecheck`, `lint`, `build` and **32/32 end-to-end specs** pass on both
@@ -403,7 +471,7 @@ Independent of Phase 5 and Phase 6; can be done at any point after Phase 4.
 > may reach a response that is refusing to say whether something exists:
 >
 > | Rule | What breaks without it |
-> |---|---|
+> | --- | --- |
 > | `isOwnerViewing()` runs **after** the not-found gate on `/d/{slug}` | The designer's 404 would carry an owner bar and a visitor's would not, so FR-023's "draft, deleted and nonexistent are indistinguishable" would quietly narrow to "…for anonymous requests only". Tested. |
 > | The cookie is checked **before** any session is resolved | `getUser()` validates against the auth server, so calling it unconditionally would put a network round trip on every visitor's request — undoing the middleware exclusion that keeps public routes session-free, on the very path SC-004 measures. |
 >
@@ -422,7 +490,7 @@ directions, with no change to what a visitor receives.
 
 ## Dependencies
 
-```
+```text
 Phase 1: Setup  (T009, T010 are gates — resolve before T027 and T071)
     ↓
 Phase 2: Foundational  ←── blocks everything
@@ -457,7 +525,7 @@ of all of them and should start immediately.
 
 **Phase 2** — after the migration chain (T011–T019):
 
-```
+```text
 T020  buckets           T025  public data access   T029  layout + grid
 T021  seed              T026  owner data access    T030  alt-text resolver
                         T027  image pipeline       T031  service-key test
@@ -497,7 +565,7 @@ are cheap now and expensive to discover late.
 ## Summary
 
 | Phase | Tasks | Count |
-|---|---|---|
+| --- | --- | --- |
 | 1 — Setup | T001–T010 | 10 |
 | 2 — Foundational | T011–T031 | 21 |
 | 3 — US1 (P1, MVP) | T032–T050 | 19 |

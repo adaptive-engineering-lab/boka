@@ -75,7 +75,7 @@ export default async function StorefrontPage({
     designs.length === 0 && filterOptions.categories.length === 0 && filterOptions.collections.length === 0;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
       {ownerViewing ? <OwnerBar /> : null}
 
       {profile ? (

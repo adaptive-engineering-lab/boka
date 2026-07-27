@@ -56,7 +56,7 @@ export default async function StudioDashboard({
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
 
   return (
-    <main>
+    <main id="main" tabIndex={-1}>
       {/* Above the heading deliberately: a failed delivery is the one thing on this screen
           she has not already been told about by some other means (SC-015). */}
       <UndeliveredBanner inquiries={undelivered} />
@@ -147,7 +147,6 @@ export default async function StudioDashboard({
                           : null
                       }
                       priority={index < 4}
-                      unoptimized
                     />
                   </div>
 

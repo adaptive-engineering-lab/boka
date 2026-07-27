@@ -32,6 +32,13 @@ export interface PublicPhoto {
   position: number;
   /** Route-relative image URL. Never a storage URL — see FR-009a. */
   src: string;
+  /**
+   * Candidate widths for the browser to choose from, as a `srcset` value.
+   *
+   * Added in T079 after measurement: a single fixed width ships the same bytes to a 240px
+   * desktop tile and a 561px phone tile, and the desktop case was ~7× the pixels it needed.
+   */
+  srcSet: string;
   blurDataURL: string;
   width: number;
   height: number;
@@ -68,6 +75,31 @@ function imageUrl(photoId: string, width: number): string {
 const GRID_WIDTH = 640;
 const DETAIL_WIDTH = 1280;
 
+/**
+ * Candidate widths offered to the browser, per surface.
+ *
+ * Every value must be in the `/img` route's `ALLOWED_WIDTHS` set, or the browser picks a URL
+ * that 404s — and because a 404 there is deliberately indistinguishable from an unpublished
+ * design, the symptom would be a blank tile with nothing in the logs to explain it.
+ *
+ * Measured in T079: with one fixed width, Desktop Chrome rendered each tile at ~240 CSS px and
+ * downloaded 640px — roughly seven times the pixels it could display — while an iPhone at DPR 3
+ * genuinely needed ~561px. No single number serves both, which is what `srcset` is for. The
+ * storefront was transferring 8.5 MB across 55 tiles before this.
+ */
+const GRID_CANDIDATE_WIDTHS = [320, 480, 640] as const;
+const DETAIL_CANDIDATE_WIDTHS = [640, 828, 1080, 1280] as const;
+
+function imageSrcSet(photoId: string, widths: readonly number[], intrinsicWidth: number): string {
+  // Never offer a candidate wider than the source. `/img` refuses to upscale, so a 1280w
+  // candidate for a 900px photo would return 900px bytes under a 1280w label and the browser
+  // would make its choice on a false premise.
+  const usable = widths.filter((width) => width <= intrinsicWidth);
+  const candidates = usable.length > 0 ? usable : [Math.min(...widths)];
+
+  return candidates.map((width) => `${imageUrl(photoId, width)} ${width}w`).join(', ');
+}
+
 interface RawPhoto {
   id: string;
   design_id: string;
@@ -83,11 +115,14 @@ function toPublicPhoto(
   designTitle: string,
   totalPhotos: number,
   renderWidth: number,
+  candidateWidths: readonly number[],
 ): PublicPhoto {
   return {
     id: raw.id,
     position: raw.position,
+    // `src` stays a single sensible width as the fallback for anything that ignores `srcset`.
     src: imageUrl(raw.id, renderWidth),
+    srcSet: imageSrcSet(raw.id, candidateWidths, raw.width),
     blurDataURL: raw.blur_placeholder,
     width: raw.width,
     height: raw.height,
@@ -155,7 +190,9 @@ export async function listPublishedDesigns(
       title: d.title,
       collection: d.collection,
       categoryName: d.category_id ? (categoryNames.get(d.category_id) ?? null) : null,
-      coverPhoto: cover ? toPublicPhoto(cover, d.title, photos.length, GRID_WIDTH) : null,
+      coverPhoto: cover
+        ? toPublicPhoto(cover, d.title, photos.length, GRID_WIDTH, GRID_CANDIDATE_WIDTHS)
+        : null,
     };
   });
 }
@@ -184,7 +221,9 @@ export async function getPublishedDesignBySlug(slug: string): Promise<PublicDesi
   ]);
 
   const raw = photosByDesign.get(design.id) ?? [];
-  const photos = raw.map((p) => toPublicPhoto(p, design.title, raw.length, DETAIL_WIDTH));
+  const photos = raw.map((p) =>
+    toPublicPhoto(p, design.title, raw.length, DETAIL_WIDTH, DETAIL_CANDIDATE_WIDTHS),
+  );
 
   return {
     slug: design.slug,

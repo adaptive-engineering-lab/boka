@@ -84,7 +84,7 @@ export default async function SettingsPage({
   }
 
   return (
-    <main className="mx-auto max-w-2xl">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-2xl">
       <h1 className="text-2xl font-medium">Settings</h1>
       <p className="mt-1 text-sm text-gray-600">
         Your name, bio and photo appear at the top of your public storefront.

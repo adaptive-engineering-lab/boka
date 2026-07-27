@@ -23,7 +23,7 @@ import Link from 'next/link';
  */
 export default function DesignNotFound() {
   return (
-    <main className="mx-auto max-w-lg px-4 py-16 text-center sm:px-6 sm:py-24">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-lg px-4 py-16 text-center sm:px-6 sm:py-24">
       <h1 className="text-2xl font-medium">Nothing here</h1>
       <p className="mt-3 text-gray-600">
         There is no design at this address. It may have moved, or the link may be incomplete.

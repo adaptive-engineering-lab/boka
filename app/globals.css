@@ -14,6 +14,17 @@
     outline-offset: 2px;
   }
 
+  /* The skip link's landing point is the one exception.
+     `<main tabindex="-1">` exists to receive focus from "Skip to content"; it is not in the
+     tab order and is not operable, so WCAG 2.4.7 does not ask for an indicator on it — and
+     drawing one boxes the entire page in a 2px ring, which reads as a rendering fault rather
+     than as focus. The user already knows where they landed: they asked to go there.
+     Scoped to [tabindex='-1'] so it can never suppress a real control's focus ring. */
+  main[tabindex='-1']:focus,
+  main[tabindex='-1']:focus-visible {
+    outline: none;
+  }
+
   /* Respect a reduced-motion preference. */
   @media (prefers-reduced-motion: reduce) {
     *,

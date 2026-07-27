@@ -1,0 +1,28 @@
+# Netlify deployment (T093).
+#
+# See quickstart.md "Deploying to Netlify" for the environment variables this build needs.
+# Two of them are not optional in the way they look:
+#
+#   SUPABASE_SERVICE_ROLE_KEY  bypasses RLS entirely and must never be prefixed NEXT_PUBLIC_.
+#   RATE_LIMIT_SALT            without it, submission rate limiting is effectively disabled on
+#                              serverless — see lib/inquiries/rate-limit.ts.
+
+[build]
+  # `verify:heic` runs FIRST and exits non-zero if this platform's sharp cannot decode HEIC.
+  #
+  # That turns T009's permanently-unverified half into a standing guarantee. FR-007 requires
+  # accepting HEIC because the designer uploads from an iPhone, and whether sharp can decode it
+  # depends on how libvips was built on the deploy target — research D5 named this the
+  # assumption in the plan most likely to be wrong. Checking it here means the failure is a red
+  # build with a clear message, rather than a designer discovering on a Sunday that half her
+  # photographs are rejected.
+  command = "npm run verify:heic && npm run build"
+  publish = ".next"
+
+[build.environment]
+  # package.json requires >= 20.
+  NODE_VERSION = "20"
+
+[[plugins]]
+  # Netlify installs this automatically; declaring it keeps the build reproducible.
+  package = "@netlify/plugin-nextjs"

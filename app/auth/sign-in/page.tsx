@@ -49,7 +49,7 @@ export default async function SignInPage({
   if (user) redirect(next ?? '/studio');
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-6 py-12">
+    <main id="main" tabIndex={-1} className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-6 py-12">
       <h1 className="text-2xl font-medium">Sign in</h1>
       <p className="mt-2 text-sm text-gray-600">Studio access for the designer.</p>
 

@@ -132,7 +132,7 @@ export default async function EditDesignPage({
   const totalPhotos = design.photos.length;
 
   return (
-    <main className="mx-auto max-w-2xl">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-2xl">
       <div className="mb-6">
         <Link href="/studio" className="text-sm text-gray-600 hover:underline">
           ← Back to your designs
@@ -297,7 +297,6 @@ export default async function EditDesignPage({
                       }),
                     }}
                     sizes="96px"
-                    unoptimized
                   />
                 </div>
 

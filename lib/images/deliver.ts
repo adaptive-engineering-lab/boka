@@ -31,8 +31,26 @@ import { downloadDisplayObject } from '@/lib/images/storage';
  * ============================================================================
  */
 
-/** Re-encode quality. Only used when an actual resize happens — see the fast path below. */
-const RESIZE_QUALITY = 80;
+/**
+ * Re-encode quality, by output width. Only used when an actual resize happens — see the fast
+ * path below.
+ *
+ * A grid tile is displayed at roughly 240–560 CSS pixels. At that size the artefacts that
+ * separate q80 from q65 are not resolvable, while the bytes very much are: T079 measured the
+ * storefront's images at 3.0 MB after `srcset` landed, and quality is the remaining lever that
+ * costs nothing structural.
+ *
+ * Detail-view widths keep the higher quality. That is the surface where a visitor looks
+ * closely at a garment — the whole purpose of the page — and it carries one photograph at a
+ * time rather than fifty, so the bytes are affordable there and the fidelity matters.
+ */
+const GRID_MAX_WIDTH = 640;
+const GRID_QUALITY = 65;
+const DETAIL_QUALITY = 80;
+
+function qualityFor(width: number): number {
+  return width <= GRID_MAX_WIDTH ? GRID_QUALITY : DETAIL_QUALITY;
+}
 
 export interface DeliverableImage {
   bytes: Buffer;
@@ -72,7 +90,7 @@ export async function renderDisplayImage(
       // `withoutEnlargement` is belt-and-braces given the check above, but it guarantees we
       // never invent pixels: upscaling would cost bytes and quality to no benefit.
       .resize({ width: requestedWidth, withoutEnlargement: true })
-      .webp({ quality: RESIZE_QUALITY })
+      .webp({ quality: qualityFor(requestedWidth) })
       .toBuffer({ resolveWithObject: true });
 
     return {

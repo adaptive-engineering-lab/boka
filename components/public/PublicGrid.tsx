@@ -39,10 +39,16 @@ export function PublicGrid({ designs }: { designs: PublicDesignSummary[] }) {
           <Link href={`/d/${design.slug}`} className="group block rounded">
             <DesignGridTile
               photo={design.coverPhoto}
-              // The first row is above the fold at every width, and its LCP is what SC-004
-              // measures.
-              priority={index < 4}
-              unoptimized
+              /*
+               * One eager image, not four (T088).
+               *
+               * `priority` sets `fetchPriority="high"` and disables lazy loading, so four of
+               * them at 400 kbps do not arrive four times sooner — they share one pipe and all
+               * four arrive late, the LCP candidate included. Marking a single image high
+               * priority lets it win the race it is supposed to win. The rest are lazy and the
+               * browser schedules them.
+               */
+              priority={index === 0}
             />
             <div className="mt-2">
               <p className="truncate text-sm font-medium group-hover:underline">{design.title}</p>

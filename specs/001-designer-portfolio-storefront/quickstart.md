@@ -11,7 +11,7 @@ How to stand the feature up locally and prove it works. Interface details live i
 ## Prerequisites
 
 | Requirement | Notes |
-|---|---|
+| --- | --- |
 | Node.js 20 LTS | Node runtime required — not Edge. `sharp` needs native binaries. |
 | Supabase project | Local via `supabase start`, or a hosted project |
 | Supabase CLI | For migrations and local stack |
@@ -21,7 +21,7 @@ How to stand the feature up locally and prove it works. Interface details live i
 ### Verification status (recorded 2026-07-26)
 
 | Gate | Status |
-|---|---|
+| --- | --- |
 | **T009 — HEIC decode** | **PASS** on darwin/arm64: `sharp` 0.35.3, libvips 8.18.3, HEIF decode available. Run `npm run verify:heic` on the **deploy target** too — that half is still unverified. |
 | **T010 — `pg_cron`** | **PASS** locally: present in `pg_available_extensions`. Confirm on the hosted project before T071. |
 | Migrations applied | **PASS.** All 11 applied cleanly from an empty database, plus seed. |
@@ -38,7 +38,7 @@ not appear in `public_categories`; `anon` cannot insert into `design`.
 The `/img` gate was tested over HTTP with a real file in the bucket:
 
 | Request | Result |
-|---|---|
+| --- | --- |
 | Published photo | `200 image/webp`, bytes resized to the requested width |
 | **Same URL after unpublishing** | **`404`** ← this is the N1 fix |
 | Same URL after republishing | `200` again |
@@ -49,7 +49,7 @@ The `/img` gate was tested over HTTP with a real file in the bucket:
 > bytes itself, resized (research D11). Re-verified against a production build:
 >
 > | Requested width | Status | Bytes | Actual width | `Location` |
-> |---|---|---|---|---|
+> | --- | --- | --- | --- | --- |
 > | 320 | 200 | 320 | 320px | none |
 > | 640 | 200 | 1,058 | 640px | none |
 > | 1080 | 200 | 2,862 | 1080px | none |
@@ -125,10 +125,10 @@ supabase db reset                   # apply migrations + seed
 npm run dev                         # http://localhost:3000
 ```
 
-**Environment**
+### Environment
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + server-side anon access (RLS applies) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only. **Never import into a client component** — it bypasses RLS, which is the whole of Principle II. |
 | `RESEND_API_KEY`, `INQUIRY_FROM_EMAIL` | Inquiry notifications (FR-039) |
@@ -218,15 +218,90 @@ using only the keyboard.
 
 ### 8. Performance and layout stability (SC-004, SC-009, SC-012)
 
-With 50 designs averaging 3 photos, throttle to **400 kbps down / 400 ms RTT** and confirm **LCP under
-3s**, filter or sort response within 1s, and **zero cumulative layout shift** as images load. Verify
-every image request goes through `/img/…` and that no response ever references an `originals/` path.
+```bash
+PORT=3100 npx playwright test --project=throttled
+```
+
+Seeds 50 published designs averaging 3 photos, throttles to **400 kbps down / 400 ms RTT** with a cold
+cache, and asserts **LCP under 3s**, filter response within 1s, and no visible layout shift. The
+fixture is idempotent and is removed afterwards through the real delete path, so storage is swept too.
+
+Two guards make the numbers trustworthy, and both fail the run rather than flattering it:
+
+- The fixtures carry **photographic entropy**, not flat colour. A storefront of solid-colour tiles
+  compresses to almost nothing and would clear a 3s budget while proving nothing, so the spec asserts
+  a floor on the mean delivered image size. Below it, the run fails as *unrealistic*.
+- Each measurement uses a **fresh context with a cleared cache**. A warm second load measures the
+  browser cache rather than the site.
+
+Also verify by eye that every image request goes through `/img/…` and that no response references an
+`originals/` path.
 
 ### 9. Mobile verification — required before "done"
 
 The constitution requires every designer-facing flow to be exercised at mobile viewport width, not only
 desktop. Run the upload flow on a real phone or an accurate device emulation. It is where the product
 is actually used.
+
+---
+
+## Deploying to Netlify
+
+`netlify.toml` sets the build to `npm run verify:heic && npm run build`, so **a deploy fails if the
+platform's `sharp` cannot decode HEIC**. That is deliberate: FR-007 requires accepting iPhone uploads,
+and research D5 named this the assumption most likely to be wrong on a given target. A red build
+beats the designer discovering that half her photographs are rejected.
+
+### Environment variables
+
+Set these in **Site configuration → Environment variables**. The first four are the same as
+`.env.example`; the last two are the ones a working local setup lets you forget.
+
+| Variable | Notes |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | The hosted project, not `127.0.0.1`. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Subject to RLS; safe in the browser. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Bypasses RLS entirely.** Never prefix `NEXT_PUBLIC_`. |
+| `RESEND_API_KEY`, `INQUIRY_FROM_EMAIL` | Without these every notification fails and every inquiry lands in the dashboard banner instead (FR-040b). Correct behaviour, but not the intended one. |
+| `RATE_LIMIT_SALT` | **Required in production.** See below. |
+
+### Two things that will not announce themselves
+
+**`RATE_LIMIT_SALT` is not optional on serverless.** Unset, `lib/inquiries/rate-limit.ts` falls back
+to a salt generated once per process. On one long-lived server that merely resets the counting window
+on restart. On Netlify the "process" is a Lambda instance — many, short-lived, concurrent — so a
+visitor's requests hash to different senders, counts never accumulate, and FR-041 and SC-016 stop
+being enforced. Nothing breaks visibly; the app logs an error and keeps accepting inquiries, because
+FR-040 says a real message must survive a misconfiguration. Set it.
+
+**`maxDuration = 60` on the upload routes cannot be honoured.** `app/(designer)/studio/designs/route.ts`
+and `.../[id]/photos/route.ts` both request 60 seconds. Netlify's synchronous function limit is 10s on
+free and 26s on Pro, so a large multi-photo HEIC upload from a phone on a slow connection can be cut
+off mid-processing. Watch the first real uploads. If this bites, the fix is to move image processing
+off the request path (background function or a queued job), which is a design change, not a config
+tweak — decide it deliberately rather than by retry.
+
+### Provisioning the owner account
+
+`supabase/seed.sql` does not run against a hosted project, so the single account is created by hand:
+
+1. Apply migrations: `supabase link --project-ref <ref>` then `supabase db push`.
+2. **Authentication → Providers → Email**: confirm *Enable email signup* is **off**. `config.toml`
+   sets this locally; the hosted project has its own setting and does not inherit it. This is T081.
+3. **Authentication → Users → Add user**, with *Auto Confirm* on. This is the only account that will
+   ever exist.
+4. Insert the matching `designer` row with that user's id as `owner_id`, plus the starter categories —
+   see `supabase/seed.sql` for the exact shape.
+5. Confirm `pg_cron` is enabled (**Database → Extensions**) and that `0014_delivery_sweep.sql` applied:
+   `select jobname, schedule from cron.job;` must show `boka-delivery-sweep` at `*/2 * * * *`.
+
+### After the first deploy
+
+- Sign in at `/auth/sign-in`; there is deliberately no link to it from the storefront (Principle I).
+- Send one real inquiry and confirm the email arrives within 5 minutes naming the right design
+  (SC-006). Every automated test to date exercises the *failure* path, which is the harder half but
+  not the whole claim.
+- Re-run the public-surface review checklist against the deployed site.
 
 ---
 
@@ -250,3 +325,7 @@ is actually used.
 - [ ] Empty states render on both the storefront and the dashboard (FR-033)
 - [ ] Every photo has alt text, authored or fallback (FR-012b)
 - [ ] Capture-to-publish timed under 3 min on a phone (SC-001); homepage → detail in ≤2 taps (SC-005)
+- [ ] `RATE_LIMIT_SALT` set in the production environment — without it the rate limit is off (FR-041)
+- [ ] Hosted Supabase: email signup disabled in the dashboard, not only in `config.toml` (T081)
+- [ ] `cron.job` shows `boka-delivery-sweep` at `*/2 * * * *` on the hosted project (T010, SC-006)
+- [ ] One real inquiry email received within 5 minutes, naming the right design (SC-006)

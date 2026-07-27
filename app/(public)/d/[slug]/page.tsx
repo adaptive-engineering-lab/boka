@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -73,7 +72,7 @@ export default async function DesignDetailPage({ params }: { params: Promise<{ s
   const meta = [design.categoryName, design.collection].filter(Boolean).join(' · ');
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       {ownerViewing ? <OwnerBar /> : null}
 
       <nav className="mb-6">
@@ -91,22 +90,28 @@ export default async function DesignDetailPage({ params }: { params: Promise<{ s
           designer chose, not an arbitrary set. */}
       <div className="space-y-4">
         {design.photos.map((photo, index) => (
-          <Image
+          /* A plain <img>, not next/image: `unoptimized` strips `srcSet`, and offering
+             candidate widths is the point. Same reasoning and the same measurement as
+             components/DesignGrid.tsx. */
+          <img
             key={photo.id}
             src={photo.src}
+            srcSet={photo.srcSet}
+            sizes="(min-width: 768px) 768px, 100vw"
             alt={photo.alt}
             width={photo.width}
             height={photo.height}
             // The first photo is the LCP element on this page (SC-004).
-            priority={index === 0}
-            sizes="(min-width: 768px) 768px, 100vw"
-            placeholder="blur"
-            blurDataURL={photo.blurDataURL}
-            // Unoptimised for the same reason as the grid: an optimiser cache in front of
-            // `/img` can outlive the publication check, and costs nothing to skip now that
-            // the route resizes to the requested width itself. See
-            // components/public/PublicGrid.tsx for the full argument.
-            unoptimized
+            loading={index === 0 ? 'eager' : 'lazy'}
+            fetchPriority={index === 0 ? 'high' : 'auto'}
+            decoding="async"
+            /* The LQIP as a background, so the box is never empty and never resizes. `width`
+               and `height` above reserve the space; this fills it (SC-012). */
+            style={{
+              backgroundImage: `url(${photo.blurDataURL})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
             className="h-auto w-full rounded bg-gray-100"
           />
         ))}

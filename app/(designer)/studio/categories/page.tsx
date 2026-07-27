@@ -59,7 +59,7 @@ export default async function CategoriesPage({
   }
 
   return (
-    <main className="mx-auto max-w-2xl">
+    <main id="main" tabIndex={-1} className="mx-auto max-w-2xl">
       <h1 className="text-2xl font-medium">Categories</h1>
       <p className="mt-1 text-sm text-gray-600">
         Used to file your designs and to build the filter controls visitors see.

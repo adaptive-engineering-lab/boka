@@ -52,10 +52,36 @@ function salt(): string {
 
   if (!warnedAboutSalt) {
     warnedAboutSalt = true;
-    console.warn(
-      '[rate-limit] RATE_LIMIT_SALT is not set. Using a per-process random salt: visitor IPs stay ' +
-        'unrecoverable, but rate-limit windows reset whenever the server restarts.',
-    );
+
+    if (process.env.NODE_ENV === 'production') {
+      /*
+       * In production the per-process fallback does not degrade the limit — it disables it.
+       *
+       * The reasoning above holds for one long-lived server: windows reset on restart, and a
+       * restart is rare. On a serverless platform (this deploys to Netlify) the "process" is a
+       * Lambda instance. Instances are many, short-lived and concurrent, so consecutive
+       * requests from one visitor are salted differently, `sender_hash` does not match, and the
+       * count never accumulates past one. The limit is not loose at that point; it is absent,
+       * and SC-016 does not hold.
+       *
+       * `console.error` rather than a throw, deliberately. Refusing to start, or refusing
+       * submissions, would lose real inquiries over a missing environment variable — and
+       * FR-040 is unambiguous that a message must survive a broken configuration. So the
+       * system stays up, keeps accepting inquiries, and says loudly that a guarantee it claims
+       * to offer is not currently being met.
+       */
+      console.error(
+        '[rate-limit] RATE_LIMIT_SALT is not set in production. Submission rate limiting is ' +
+          'effectively DISABLED: on serverless each instance salts differently, so per-sender ' +
+          'counts never accumulate and FR-041 / SC-016 are not being enforced. Set ' +
+          'RATE_LIMIT_SALT to a long random string and redeploy.',
+      );
+    } else {
+      console.warn(
+        '[rate-limit] RATE_LIMIT_SALT is not set. Using a per-process random salt: visitor IPs stay ' +
+          'unrecoverable, but rate-limit windows reset whenever the server restarts.',
+      );
+    }
   }
   return FALLBACK_SALT;
 }

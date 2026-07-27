@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import type { ReactNode } from 'react';
 
 /**
@@ -16,6 +15,8 @@ export function DesignGrid({ children }: { children: ReactNode }) {
 
 export interface GridPhoto {
   src: string;
+  /** Candidate widths, as a `srcset` value. Optional: the studio grid has one width. */
+  srcSet?: string;
   blurDataURL: string;
   width: number;
   height: number;
@@ -32,31 +33,40 @@ export interface GridPhoto {
  *      box before the bytes arrive.
  *   2. `aspect-square` on the wrapper fixes the tile's height independently of the
  *      image's intrinsic ratio.
- *   3. `placeholder="blur"` with a stored LQIP means the first paint already has
- *      something in the box, with no extra request.
+ *   3. The stored LQIP is painted as the wrapper's background, so the first paint already
+ *      has something in the box with no extra request.
  *
  * `src` always points at the /img route, never at storage — that is what keeps image
  * access revocable when a design is unpublished (FR-009a).
+ *
+ * ============================================================================
+ * **A plain `<img>`, not `next/image`, and that is forced rather than preferred.**
+ *
+ * Every image here is `unoptimized` — on the public grid because an optimiser cache can
+ * outlive the publication check (see `PublicGrid.tsx`), and on the studio grid because the
+ * optimiser fetches server-side without cookies and would get a 404. But `unoptimized` also
+ * makes `next/image` drop `srcSet` entirely, which meant the `sizes` prop below was **inert**:
+ * every device downloaded one fixed width.
+ *
+ * T079 measured what that cost. Desktop Chrome renders each tile at ~240 CSS px and was being
+ * sent 640px — about seven times the pixels it could show — while an iPhone at DPR 3 genuinely
+ * needed ~561px. The storefront transferred 8.5 MB across 55 tiles and took three minutes to
+ * finish on a 400 kbps connection.
+ *
+ * The blur placeholder is the only thing lost by dropping `next/image`, and it is recovered as
+ * a CSS background on the wrapper. That is arguably better here: it needs no client JavaScript
+ * to swap out, because the real image simply paints over it.
+ * ============================================================================
  */
 export function DesignGridTile({
   photo,
   sizes = '(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, 50vw',
   priority = false,
-  unoptimized = false,
 }: {
   photo: GridPhoto | null;
+  /** Only consulted when the photo carries a `srcSet`; without candidates it means nothing. */
   sizes?: string;
   priority?: boolean;
-  /**
-   * Required for the studio's `/studio/img` source, not an optimisation choice.
-   *
-   * Next's image optimiser fetches `src` server-side, without the visitor's cookies. That
-   * is fine for the public `/img` route, which is deliberately unauthenticated — but the
-   * studio route requires a session, so an optimised fetch would arrive anonymous and 404.
-   * Unoptimised means the browser requests it directly, with cookies, and the blur
-   * placeholder and reserved dimensions still work.
-   */
-  unoptimized?: boolean;
 }) {
   if (!photo) {
     // FR-013a makes a photoless design impossible, so this is defence in depth rather
@@ -65,18 +75,30 @@ export function DesignGridTile({
   }
 
   return (
-    <div className="relative aspect-square w-full overflow-hidden rounded bg-gray-100">
-      <Image
+    <div
+      className="relative aspect-square w-full overflow-hidden rounded bg-gray-100"
+      // The LQIP, painted immediately from the markup. The real photograph paints over it,
+      // so there is nothing to swap and no JavaScript involved.
+      style={{
+        backgroundImage: `url(${photo.blurDataURL})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
+      {/* See the note above: `unoptimized` strips srcSet from next/image, and srcSet is the
+          entire point of this element. */}
+      <img
         src={photo.src}
+        srcSet={photo.srcSet}
+        sizes={photo.srcSet ? sizes : undefined}
         alt={photo.alt}
         width={photo.width}
         height={photo.height}
-        sizes={sizes}
-        placeholder="blur"
-        blurDataURL={photo.blurDataURL}
-        priority={priority}
-        unoptimized={unoptimized}
-        className="h-full w-full object-cover"
+        // `priority` means "above the fold": fetch it eagerly and tell the browser it matters.
+        loading={priority ? 'eager' : 'lazy'}
+        fetchPriority={priority ? 'high' : 'auto'}
+        decoding="async"
+        className="relative h-full w-full object-cover"
       />
     </div>
   );
