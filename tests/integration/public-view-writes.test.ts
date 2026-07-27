@@ -15,13 +15,27 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, hasSupabaseConfig } from '../e2e/helpe
  *
  * Three facts had to line up, and each was individually defensible:
  *
- *   1. Supabase's default privileges grant ALL on new objects in `public` to `anon`, so the
- *      views inherited write access the moment they were created.
+ *   1. The views inherited write privileges from the default ACL of the role that created
+ *      them — see the warning below, because that role's defaults are **not the same locally
+ *      and in production**.
  *   2. `public_designs` and `public_designer_profile` are simple single-table selects, which
  *      makes them **automatically updatable** — Postgres rewrites a view write into a base
  *      table write with no trigger involved.
  *   3. The views run as their owner (`postgres`, which holds `rolbypassrls`) and are not
  *      `security_invoker`, so the rewritten statement skips RLS entirely.
+ *
+ * ---------------------------------------------------------------------------
+ * **⚠ Run locally, this file proves almost nothing. Point it at the deployment.**
+ *
+ * `pg_default_acl` for the `public` schema differs between environments for `postgres`, the
+ * role migrations run as: hosted it grants `arwdDxtm` to `anon` (everything), locally only
+ * `Dxtm` (no DML). So the local stack **never had this vulnerability**, and every assertion
+ * below passes there whether or not migration 0015 exists.
+ *
+ * The production hole would therefore have survived a fully green local suite indefinitely.
+ * `npm run test:deployed` points these tests at the hosted project, which is the only run
+ * that can fail. Treat a green local run as "no regression", never as "production is safe".
+ * ---------------------------------------------------------------------------
  *
  * Migration 0007 had asserted that `anon` holds no DML on the four **base tables**, and that
  * assertion passed — it was true, and it was answering a different question. The views were

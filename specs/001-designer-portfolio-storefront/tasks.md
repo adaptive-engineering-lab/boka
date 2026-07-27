@@ -527,14 +527,38 @@ private` by design, so no CDN may cache it and every tile is a function invocati
 > The control is what makes this conclusive: **0007 worked.** The base tables were properly
 > locked. The hole was one layer out, and needed three individually-defensible facts to align:
 >
-> 1. Supabase's default privileges grant ALL on new objects in `public` to `anon`, so the views
->    inherited write access on creation. 0007 revoked on base tables and stopped, because
->    "the views expose only safe columns" answered what could be **read**.
+> 1. The views inherited write privileges from the default ACL of the role that created them.
+>    0007 revoked on base tables and stopped, because "the views expose only safe columns"
+>    answered what could be **read**.
 > 2. `public_designs` and `public_designer_profile` are simple single-table selects, making them
 >    **automatically updatable** — Postgres rewrites a view write into a base-table write.
 > 3. The views are owned by `postgres` (which holds `rolbypassrls`) and are not
 >    `security_invoker`, so the rewritten statement **skips RLS entirely**.
 >
+> **The local stack never had this bug, and that is the finding with the longest reach.**
+>
+> Measured afterwards, `pg_default_acl` for the `public` schema differs by environment for
+> `postgres` — the role migrations run as:
+>
+> | Environment | `postgres` default grant to `anon` |
+> | --- | --- |
+> | Hosted project | `arwdDxtm` — everything, DML included |
+> | Local CLI stack | `Dxtm` — truncate/references/trigger only |
+>
+> So **the same migration file produced a safe database locally and an exploitable one in
+> production**. Locally the views came out with SELECT and nothing more; hosted they came out
+> with ALL. This is the same asymmetry behind 0011, where `postgres`'s restrictive *local*
+> defaults left the owner with no DML on her own tables — one divergence, two bugs, in opposite
+> directions.
+>
+> The consequence for testing is blunt: `public-view-writes.test.ts` passes locally whether or
+> not 0015 exists, because local was never vulnerable. A fully green local suite would have sat
+> alongside an open production hole indefinitely. `npm run test:deployed` points it at the
+> hosted project, and that is the only run that can fail. Grants must be **stated** in
+> migrations, never inherited — an inherited privilege is invisible in a diff and varies by
+> environment.
+
+<!-- -->
 > `security_invoker = true` is not the fix. These views are deliberately owner-executed so an
 > anonymous caller can read published rows while holding no privilege on the base tables — that
 > is the whole design in D3 and 0008. Turning it on would break every public read. The fix is

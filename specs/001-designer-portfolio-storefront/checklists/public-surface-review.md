@@ -174,7 +174,8 @@ holds. One item is new, and it is the item this checklist most needed:
       — verified from outside over HTTP with the publishable key, not by reading a grant.
       Before the fix: `PATCH public_designer_profile` → **200**, `DELETE public_designs` → **204**.
       After `0015_revoke_view_writes.sql`: both **401**, with all four `SELECT`s still 200.
-      Guarded by `tests/integration/public-view-writes.test.ts`.
+      Guarded by `tests/integration/public-view-writes.test.ts` — which must be run with
+      **`npm run test:deployed`** to mean anything, because the local stack was never vulnerable.
 
 > **Every question on this checklist, for four runs, was about reading.** "Does this view expose
 > `notes`?" "Can a visitor see a draft?" "Is `original_path` absent?" All correct, all necessary,
@@ -194,10 +195,15 @@ The four defects this gate exists to catch were all invisible to table-level rea
    enumerate draft-only categories.
 3. **Anonymous `INSERT` on `inquiry`** let a bot skip the submission route and its abuse checks entirely.
 4. **Anonymous `UPDATE`/`DELETE` on the public views** let a visitor rewrite the designer's profile and
-   destroy published designs. Three individually-sound facts combined: Supabase's default privileges
-   granted ALL on the views at creation; two of them are simple enough to be *automatically updatable*;
-   and they run as an owner that bypasses RLS. Migration 0007 had asserted the base tables were locked,
-   which was true and answered a different question.
+   destroy published designs. Three individually-sound facts combined: the views inherited write
+   privileges from the creating role's default ACL; two of them are simple enough to be *automatically
+   updatable*; and they run as an owner that bypasses RLS. Migration 0007 had asserted the base tables
+   were locked, which was true and answered a different question.
+
+   **And it existed only in production.** `pg_default_acl` differs between the hosted project and the
+   local CLI stack for `postgres`, the role migrations run as — hosted it grants everything to `anon`,
+   locally almost nothing. The same migration file therefore built a safe database locally and an
+   exploitable one live. No local run of any test could have found it.
 
 The common thread: each was correct at the layer it was reviewed at, and wrong end to end. Evaluate
 per reachable surface — table, view, route, and stored object — not per table. And for each, ask both

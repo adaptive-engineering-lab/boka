@@ -322,6 +322,22 @@ request already goes to. Omit **both** — a list naming only the key fails the 
 > which `tests/integration/no-service-key.test.ts` cannot do. Two independent gates on the project's
 > worst failure mode is worth keeping; trading one away to silence an expected finding is not.
 
+### Privilege checks must be run against the deployment
+
+```bash
+npm run test:deployed
+```
+
+`pg_default_acl` for the `public` schema is **not the same** in a hosted project and the local CLI
+stack, for `postgres` — the role migrations run as. Hosted it grants `arwdDxtm` (everything) to
+`anon`; locally it grants `Dxtm` (no DML). So an identical migration file produces different
+privileges in the two places, and the T095 vulnerability existed **only in production**.
+
+`npm test` runs the same guard against the local stack, where it passes whether or not the fix is
+present. Treat a green local run as "no regression", never as "production is safe". This is also why
+grants belong in migrations explicitly rather than inherited — an inherited privilege is invisible in
+a diff and varies by environment.
+
 ### `0015` was applied out of band — expect it twice
 
 `0015_revoke_view_writes.sql` closed a **live vulnerability** (anonymous `DELETE` on published

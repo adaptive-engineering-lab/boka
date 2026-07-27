@@ -15,9 +15,11 @@
 -- The base tables were correctly locked down by 0007. The defect is one layer out, in
 -- the views 0008 created, and it needed three things to line up:
 --
---   1. Supabase's default privileges grant ALL on new objects in `public` to `anon`
---      and `authenticated`. The views inherited that on creation. 0007 revoked on the
---      four base tables and stopped there, because "the views only expose safe
+--   1. The views inherited write privileges from the default ACL of the role that
+--      created them. **This differs between the local CLI stack and a hosted project**,
+--      which is why identical migrations produce different privileges — see the note
+--      below, which is the single most important thing in this file. 0007 revoked on
+--      the four base tables and stopped there, because "the views only expose safe
 --      columns" answered the question of what could be *read*, and nobody asked what
 --      could be *written*.
 --   2. `public_designs` and `public_designer_profile` are simple single-table selects,
@@ -88,6 +90,35 @@ begin
   end if;
 end;
 $$;
+
+-- ===========================================================================
+-- THE LOCAL STACK NEVER HAD THIS BUG. That is the part worth remembering.
+--
+-- Measured after the fact, `pg_default_acl` for the `public` schema differs by environment
+-- for the SAME role that runs migrations:
+--
+--   hosted project : postgres grants `arwdDxtm` to anon  -- everything, DML included
+--   local CLI stack: postgres grants `Dxtm`    to anon  -- truncate/references/trigger only
+--
+-- Both environments also carry `supabase_admin`'s permissive defaults, but migrations run as
+-- `postgres`, so its ACL is the one that applies. The consequence is exact and unpleasant:
+-- **the same migration file produced a safe database locally and an exploitable one in
+-- production.** Locally the views came out with SELECT and nothing else; hosted they came out
+-- with ALL.
+--
+-- This is the same asymmetry that caused the opposite bug in 0011, where `postgres`'s
+-- restrictive local defaults left the OWNER with no DML on her own tables. One divergence,
+-- two failures, in opposite directions.
+--
+-- What follows from it:
+--
+--   * A privilege test that runs only against the local stack proves nothing about
+--     production. `tests/integration/public-view-writes.test.ts` passes locally whether or
+--     not this migration exists, because local was never vulnerable. It only has teeth when
+--     pointed at the deployed project — see the npm script and note in quickstart.md.
+--   * Grants must be stated explicitly in migrations rather than inherited. An inherited
+--     privilege is invisible in the diff and varies by environment.
+-- ===========================================================================
 
 -- ---------------------------------------------------------------------------
 -- Recurrence is the real risk, so name it.

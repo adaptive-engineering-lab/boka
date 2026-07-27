@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "//test:deployed": "Runs the privilege guards against the DEPLOYED project, not the local stack. pg_default_acl differs between them, so a green local run cannot prove production is safe — see supabase/migrations/0015_revoke_view_writes.sql. Reads the hosted URL/key from .env and passes BOTH explicitly: tests/e2e/helpers/env.ts fills any unset variable from .env.local, so passing only the URL would silently pair the hosted project with the local key and fail as 401s everywhere.",
+    "test:deployed": "NEXT_PUBLIC_SUPABASE_URL=$(grep '^NEXT_PUBLIC_SUPABASE_URL=' .env | cut -d= -f2-) NEXT_PUBLIC_SUPABASE_ANON_KEY=$(grep '^NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=' .env | cut -d= -f2-) vitest run tests/integration/public-view-writes.test.ts",
     "test:e2e": "playwright test",
     "verify:heic": "node scripts/verify-heic.mjs",
     "db:reset": "supabase db reset",
