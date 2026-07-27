@@ -23,6 +23,20 @@
   # package.json requires >= 20.
   NODE_VERSION = "20"
 
+  # Netlify's secrets scanner found the Supabase publishable key in the client bundle. It is
+  # supposed to be there: that key is subject to RLS and is exactly what every visitor's browser
+  # holds. Both accepted names are listed because lib/supabase/env.ts takes either.
+  #
+  # **Omitted by key, and scanning stays ON.** `SECRETS_SCAN_ENABLED = "false"` and broad
+  # `SECRETS_SCAN_OMIT_PATHS` would also make the build pass, and either would be a bad trade.
+  # The one secret that must never reach a bundle is SUPABASE_SERVICE_ROLE_KEY — it bypasses RLS
+  # completely, which is where every privacy guarantee in this project lives. This scanner is a
+  # second, independent check on that, of the same kind as
+  # `tests/integration/no-service-key.test.ts`, and it runs against the real deployed artifact
+  # rather than a local build. Naming one deliberately-public key keeps that protection intact;
+  # switching the scanner off to clear a warning would discard it.
+  SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,NEXT_PUBLIC_SUPABASE_ANON_KEY"
+
 [[plugins]]
   # Netlify installs this automatically; declaring it keeps the build reproducible.
   package = "@netlify/plugin-nextjs"

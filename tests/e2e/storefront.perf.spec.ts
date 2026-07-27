@@ -300,12 +300,21 @@ test('image delivery costs little enough server-side to stay on the request path
   try {
     await page.goto('/', { waitUntil: 'load', timeout: 300_000 });
 
+    /*
+     * Photo tiles only — `/img/{uuid}/{width}` — and not `/img/profile`.
+     *
+     * The avatar is the first `img[src^="/img/"]` in the document, and it is a different route
+     * with deliberately different behaviour: no publication gate (FR-028) and **no ETag**,
+     * because it is overwritten in place at a stable path. Timing it alongside the tiles mixes
+     * two routes, and asking it for a conditional response asks for something it never offers.
+     */
     const urls = await page.evaluate(() =>
       Array.from(document.querySelectorAll('img[src^="/img/"]'))
-        .slice(0, 12)
-        .map((img) => (img as HTMLImageElement).getAttribute('src') ?? ''),
+        .map((img) => (img as HTMLImageElement).getAttribute('src') ?? '')
+        .filter((src) => /^\/img\/[0-9a-f-]{36}\/\d+$/.test(src))
+        .slice(0, 12),
     );
-    expect(urls.length, 'no image URLs found to time').toBeGreaterThan(0);
+    expect(urls.length, 'no photo-tile image URLs found to time').toBeGreaterThan(0);
 
     // Serially, so each timing is one request's own cost rather than a share of the pipe.
     const timings: number[] = [];
@@ -323,6 +332,12 @@ test('image delivery costs little enough server-side to stay on the request path
     const firstUrl = urls[0]!;
     const first = await page.request.get(firstUrl);
     const etag = first.headers()['etag'] ?? '';
+    // Assert the ETag was actually read before relying on it. Without this the next assertion
+    // fails as "no 304" when the real cause is an empty header, which is what happened when
+    // this test picked up the avatar route by mistake — a confusing failure standing in for a
+    // simple one.
+    expect(etag, `no ETag on ${firstUrl}, so the conditional path cannot be measured`).not.toBe('');
+
     const conditionalStart = Date.now();
     const conditional = await page.request.get(firstUrl, { headers: { 'if-none-match': etag } });
     const conditionalMs = Date.now() - conditionalStart;

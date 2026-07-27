@@ -237,6 +237,22 @@ Two guards make the numbers trustworthy, and both fail the run rather than flatt
 Also verify by eye that every image request goes through `/img/…` and that no response references an
 `originals/` path.
 
+#### Recorded result (2026-07-27, 50 designs, cold cache)
+
+| Metric | Result | Budget |
+| --- | --- | --- |
+| Largest Contentful Paint | **1,256 ms** | < 3,000 ms (SC-004) |
+| Cumulative Layout Shift | **0** | ≤ 0.01 (SC-012) |
+| Filter response | **585 ms** | < 1,000 ms (SC-009) |
+| Storefront image weight | 2,386 KB over 55 requests | recorded |
+| `/img` server cost | mean 184 ms, 12 ms on a repeat (304) | recorded |
+
+**Read the LCP figure with its element.** The spec reports which element Chrome chose, and here it is
+a `<p>` — the designer's bio — not a photograph. The criterion is met and the storefront still takes
+about 54 s to finish loading every tile on this connection. Before T088–T090 it was 179 s and 8.5 MB;
+`srcset` and width-aware quality cut image weight 72%. A future change that reports a passing LCP
+should be checked against the element and the byte totals, or it is measuring the wrong thing.
+
 ### 9. Mobile verification — required before "done"
 
 The constitution requires every designer-facing flow to be exercised at mobile viewport width, not only
@@ -280,6 +296,28 @@ free and 26s on Pro, so a large multi-photo HEIC upload from a phone on a slow c
 off mid-processing. Watch the first real uploads. If this bites, the fix is to move image processing
 off the request path (background function or a queued job), which is a design change, not a config
 tweak — decide it deliberately rather than by retry.
+
+### Two build failures to expect on the first deploy
+
+Both hit on 2026-07-27 and both are fixed in `netlify.toml`. Recorded because the *reason* matters
+more than the fix.
+
+**`Could not resolve "@opentelemetry/api"` during Edge Functions bundling.** Next declares it as an
+**optional** peer dependency and references it from the edge runtime; Netlify's esbuild-based edge
+bundler tries to resolve the import regardless and hard-fails. Next middleware is always deployed as
+an edge function on Netlify, and this project has middleware (it protects `/studio`), so the path is
+unavoidable. Installing `@opentelemetry/api` at the declared peer range resolves it. With no exporter
+configured OpenTelemetry defaults to a no-op, so nothing is traced and nothing is sent anywhere.
+
+**Secrets scanning flags `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.** It is in the client bundle because
+it is *supposed* to be — it is subject to RLS and is what every visitor's browser holds.
+
+> **Fix it with `SECRETS_SCAN_OMIT_KEYS`, naming that key. Do not set `SECRETS_SCAN_ENABLED=false`,
+> and do not add broad `SECRETS_SCAN_OMIT_PATHS`.** Either would clear the warning and throw away
+> something valuable: the one secret that must never reach a bundle is `SUPABASE_SERVICE_ROLE_KEY`,
+> which bypasses RLS entirely. Netlify's scanner checks that against the **real deployed artifact**,
+> which `tests/integration/no-service-key.test.ts` cannot do. Two independent gates on the project's
+> worst failure mode is worth keeping; trading one away to silence an expected finding is not.
 
 ### Provisioning the owner account
 

@@ -40,7 +40,7 @@ runtime.
 **Alternatives considered**:
 
 | Option | Why rejected |
-|---|---|
+| --- | --- |
 | Vite + React SPA with a separate API | Two deployables and no server-rendered HTML. Public pages would ship JSON to the browser, weakening the Principle II boundary and forfeiting the v1.1 SEO path. |
 | Remix / React Router 7 | Comparable server-first model and a legitimate choice. Rejected only because it lacks a built-in image pipeline equivalent to `next/image`, which is disproportionately valuable for a photo-only product. |
 | Astro | Excellent for the public storefront, weaker for the authenticated dashboard's interactive upload flow. Would likely mean two rendering models in one project. |
@@ -72,7 +72,7 @@ anyone create an account, which violates Principle I's premise that there is no 
 **Alternatives considered**:
 
 | Option | Why rejected |
-|---|---|
+| --- | --- |
 | Postgres + Prisma + Auth.js + S3 | Four moving parts to assemble and secure, and authorization would live entirely in application code. More control than this feature needs, at the cost of the fail-closed property. |
 | Firebase / Firestore | Document model fits the data less well, and security rules are harder to reason about than SQL policies for the draft-visibility requirement. |
 | SQLite + local disk | Violates Principle IV: file-backed storage on one host is not device-independent persistence, and image files would not survive a redeploy. |
@@ -179,7 +179,7 @@ FR-040a/FR-040b, and it is correctness-driven, not scale-driven. See Complexity 
 **Alternatives considered**:
 
 | Option | Why rejected |
-|---|---|
+| --- | --- |
 | Synchronous send, no retry | Cannot satisfy FR-040a. A transient DNS blip loses a real lead. |
 | Inline retry with backoff before responding | Adds seconds to the visitor's submit. Poor experience for the one action a visitor can take. |
 | Dedicated queue (Inngest, QStash, Redis+worker) | Genuine infrastructure for a site expecting a handful of inquiries a week. Disproportionate under Principle V. |
@@ -263,7 +263,7 @@ Re-checking publication per request makes revocation immediate, and serving the 
 **Alternatives considered**:
 
 | Option | Why rejected |
-|---|---|
+| --- | --- |
 | Public bucket, accept the exposure | The original design. Fails FR-023 outright — an unpublished garment stays downloadable indefinitely. |
 | Long-lived signed URLs generated at page render | Simpler and CDN-friendly, but the TTL becomes the revocation window; a 1-hour TTL means an hour of continued access to work the designer has withdrawn. |
 | **Short-lived (60s) signed URL plus a 302 redirect** | **Superseded — this was the first form of this decision and shipped in the US2 increment.** See the amendment below. |
@@ -290,6 +290,34 @@ increment exposed two defects in it:
 Reading the object and returning resized bytes closes both. The second is the one that makes this an
 amendment rather than an optimisation: **the residual window is now zero, not short**, which strengthens
 the FR-009a guarantee this decision exists to provide.
+
+### Measured (2026-07-27, T079): per-request CPU is not the problem; a missing `srcset` was
+
+This decision deferred one question to T079 — whether per-request resizing costs enough to justify
+pre-generated variants. It does not. Measured unthrottled over 12 distinct images: **mean 184 ms,
+slowest 532 ms, and 12 ms for a repeat request on the ETag path.** The storefront is network-bound by
+roughly an order of magnitude, so the pre-generated-variant option stays rejected and the row above
+stands.
+
+What the same measurement did find was a defect this decision created and nobody noticed for two
+phases. Serving bytes requires `unoptimized` on every image — correct, because an optimiser cache in
+front of `/img` would outlive the publication check — but **`unoptimized` also makes `next/image` drop
+`srcSet`**. The `sizes` prop was being passed, looked right, and did nothing: every device received one
+fixed 640px width. Desktop renders each grid tile at ~240 CSS px, roughly a seventh of that.
+
+Fixed by hand-rolling `srcset` over the widths `/img` already allows and lowering encode quality for
+grid-sized outputs. Storefront image weight fell from **8,513 KB to 2,386 KB (−72%)** and
+time-to-fully-loaded from 179 s to 54 s, with CLS unchanged at 0.
+
+The lesson is narrower than "measure things". Two decisions were individually sound — serve bytes so
+revocation is total, and skip the optimiser so no cache outlives the gate — and their **interaction**
+silently disabled responsive images. Nothing errored, no test failed, and the markup read correctly.
+
+> **If per-image cost is ever re-measured on the deploy target and approaches the low seconds**, the
+> follow-up is a lazy derived-variant cache with **flat** `{designId}/{photoId}-{width}.webp` names, so
+> the existing non-recursive `deleteDesignFiles` sweep still finds them. Nesting them is the FR-019
+> regression the row above warns about, and flat naming is what makes the option safe rather than
+> unavailable.
 
 **Ordering rule, load-bearing:** the publication check runs *before* conditional-request handling. A `304`
 answered to a stale `If-None-Match` ahead of the gate would confirm to anyone holding an old ETag that a
@@ -324,7 +352,7 @@ it. Making the server the sole writer is the only arrangement where the checks c
 ## Resolved Technical Context
 
 | Field | Resolution |
-|---|---|
+| --- | --- |
 | Language/Version | TypeScript 5.x on Node.js 20 LTS |
 | Primary Dependencies | Next.js 15 (App Router), React 19, Supabase (Postgres/Auth/Storage), `sharp`, Resend, Tailwind CSS |
 | Storage | Supabase Postgres with RLS; Supabase Storage buckets `originals/` and `display/` — **both private**, served via a publication-gated route (D11) |

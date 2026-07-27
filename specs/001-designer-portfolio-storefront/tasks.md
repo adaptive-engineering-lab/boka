@@ -336,9 +336,9 @@ insert with the anon key and confirm rejection.
 - [X] T076 Implement the accessibility pass — visible focus indication, contrast, keyboard operability, form labelling and error association across both surfaces (FR-012c) — in `app/globals.css` and the affected components
 - [X] T077 [P] E2E accessibility test: zero axe-core WCAG 2.1 AA violations on storefront, detail, and dashboard (SC-013) in `tests/e2e/accessibility.spec.ts`
 - [X] T078 [P] E2E test: a keyboard-only visitor can browse, open a design, and inquire (SC-014) in `tests/e2e/keyboard.spec.ts`
-- [ ] T079 [P] Seed 50 designs averaging 3 photos and measure LCP at a 400 kbps / 400 ms RTT profile, filter/sort latency, and cumulative layout shift (SC-004, SC-009, SC-012) in `tests/perf/seed-and-measure.ts`
+- [X] T079 [P] Seed 50 designs averaging 3 photos and measure LCP at a 400 kbps / 400 ms RTT profile, filter/sort latency, and cumulative layout shift (SC-004, SC-009, SC-012) in ~~`tests/perf/seed-and-measure.ts`~~ — *split across `tests/perf/seed.ts` and `tests/e2e/storefront.perf.spec.ts`; see Phase 8 for the results and the reason for the path change*
 - [X] T080 Create the public-surface review checklist that any change touching a public route, public view, or the `published` flag must pass before merge (constitution Quality Gates) in `specs/001-designer-portfolio-storefront/checklists/public-surface-review.md`
-- [ ] T081 Disable public sign-up and provision the single owner account, recording the steps in `supabase/config.toml`
+- [X] T081 Disable public sign-up and provision the single owner account, recording the steps in `supabase/config.toml` — *hosted provisioning runbook in `quickstart.md`; the hosted half is done by hand and is not satisfied by the local config alone*
 - [ ] T082 Exercise every designer-facing flow at mobile viewport width, **timing the capture-to-publish flow (SC-001) and counting taps from homepage to detail (SC-005)**, and tick off the smoke checklist in `specs/001-designer-portfolio-storefront/quickstart.md`
 
 > **T076 must precede T077 and T078.** Ordering the accessibility tests before any implementation task
@@ -485,6 +485,115 @@ Independent of Phase 5 and Phase 6; can be done at any point after Phase 4.
 
 **Checkpoint**: the designer can end her session, and can move between the two surfaces in both
 directions, with no change to what a visitor receives.
+
+---
+
+## Phase 8: Performance evidence and deployment (T087–T094)
+
+Added 2026-07-27, when T079 stopped being a confirmation exercise. Six of eighteen success criteria
+had no evidence at all, and the `/img` amendment had since moved image resizing onto the request
+path. Deployment target is **Netlify**, which changes the calculus: `/img` sends `Cache-Control:
+private` by design, so no CDN may cache it and every tile is a function invocation.
+
+- [X] T087 Fix the perf-test wiring: `testIgnore` for `*.perf.spec.ts` on the `mobile` and `desktop` projects, so a perf spec runs **once, throttled**, in `playwright.config.ts`
+- [X] T079a Launch-scale fixture — 50 published designs averaging 3 photos, created through the real upload route, idempotent, with prefix-swept teardown — in `tests/perf/seed.ts`
+- [X] T079b Measurement spec: LCP (and **which element**), CLS, filter latency, byte accounting, server-side image cost — in `tests/e2e/storefront.perf.spec.ts`
+- [X] T079c Measure and record the baseline
+- [X] T088 One eager grid image instead of four (`components/public/PublicGrid.tsx`)
+- [X] T089 Hand-rolled `srcset` over the widths `/img` already allows, in `lib/data/public-designs.ts`, `components/DesignGrid.tsx` and `app/(public)/d/[slug]/page.tsx`
+- [X] T090 Width-aware encode quality in `lib/images/deliver.ts`
+- [X] T092 `RATE_LIMIT_SALT` production guard in `lib/inquiries/rate-limit.ts`
+- [X] T081 `[auth.email] enable_signup = false`, verified by probe; hosted owner-account runbook in `quickstart.md`
+- [X] T093 `netlify.toml` with a build-time HEIC gate; environment runbook in `quickstart.md`
+- [X] T082 Mobile pass — tap count, flow timing, viewport usability — in `tests/e2e/mobile-flow.spec.ts`
+
+> **T079's real finding was not a number, it was which element the number described.**
+>
+> The first measurement reported **LCP 1,100 ms against a 3,000 ms budget** and would have been
+> recorded as a comfortable pass. It was not one. Adding the LCP element's identity to the observer
+> showed the element was a **`<p>`** — the designer's bio — while the storefront was still
+> transferring **8.5 MB across 55 tiles** and took **179 seconds** to finish. Chrome was right; the
+> criterion was met; and no photograph had appeared.
+>
+> That is the whole reason the plan called for identifying the element rather than trusting the
+> figure. A performance test that reports a passing number for the wrong element is worse than none,
+> because it retires the question.
+>
+> Two other instrumentation defects were caught the same way. Byte accounting from `content-length`
+> reported the streamed HTML as **0 KB**, so the one resource gating everything else was invisible —
+> replaced with the Resource Timing API. And the filter measurement first read **18,371 ms**, which
+> turned out to be contention with the previous page's unfinished image load rather than anything
+> about filtering; from a settled state it is **572 ms**.
+
+<!-- -->
+> **The fixtures are synthetic but not flattering, and that took deliberate work.** The rest of the
+> suite uses `makeJpeg`, a flat block of one colour — right there, catastrophic here: a solid colour
+> encodes to a couple of kilobytes at any size, so fifty of them would clear a 3-second budget while
+> proving nothing. `tests/perf/seed.ts` synthesises photographic entropy instead, and the spec
+> asserts a **floor on the mean delivered image size**. If the fixtures ever become trivially
+> compressible again, the run fails as *unrealistic* rather than passing as fast.
+
+<!-- -->
+> **Two production risks surfaced from the deployment work, neither visible locally.**
+>
+> `RATE_LIMIT_SALT` unset falls back to a salt generated **once per process**. On one long-lived
+> server that merely resets the counting window on restart, which is the trade the code documented.
+> On Lambda the process is an instance — many, short-lived, concurrent — so a visitor's requests hash
+> to different senders, counts never accumulate, and **FR-041 and SC-016 stop being enforced with
+> nothing visibly broken**. It now logs an error in production and still accepts the submission,
+> because FR-040 says a real message must survive a misconfiguration.
+>
+> `maxDuration = 60` on both upload routes **cannot be honoured on Netlify** (10s free, 26s Pro), so
+> a large multi-photo HEIC upload can be cut off mid-processing. Recorded in `quickstart.md` rather
+> than patched, because the fix — moving image processing off the request path — is a design change
+> and should be chosen deliberately.
+
+<!-- -->
+> ### Results (2026-07-27, 50 designs, 400 kbps / 400 ms, cold cache)
+>
+> | | Baseline | +T088/T089 | +T090 | Budget |
+> | --- | --- | --- | --- | --- |
+> | LCP | 1,284 ms | 1,256 ms | **1,256 ms** | < 3,000 ms (SC-004) |
+> | CLS | 0 | 0 | **0** | ≤ 0.01 (SC-012) |
+> | Filter response | 572 ms | 633 ms | **585 ms** | < 1,000 ms (SC-009) |
+> | Storefront images | 8,513 KB | 2,998 KB | **2,386 KB** | recorded |
+> | Mean image | 154.8 KB | 54.5 KB | **43.4 KB** | recorded |
+> | Fully loaded | 179.3 s | 66.2 s | **53.6 s** | recorded |
+>
+> **SC-004, SC-009 and SC-012 are met.** Image weight fell **72%** and time-to-fully-loaded **70%**.
+>
+> **`sizes` had been inert since T054, and nothing would have revealed that except measuring.** The
+> prop was passed, looked correct, and did nothing: `unoptimized` makes `next/image` drop `srcSet`
+> entirely, so every device downloaded one fixed 640px width. Desktop renders each tile at ~240 CSS
+> px — about seven times the pixels it could display. The fix required replacing `next/image` with a
+> plain `<img>` on both public surfaces; the blur placeholder is the only casualty and it is
+> recovered as a CSS background, which needs no client JavaScript to swap out because the real
+> photograph paints over it. CLS stayed at exactly 0 across all three changes.
+>
+> Worth recording against intuition: the phone was **not** the oversized case. An iPhone at DPR 3
+> genuinely needs ~561px, so 640 was about right there. The waste was on desktop.
+
+<!-- -->
+> ### T091 (lazy derived-variant cache) — **measured, and deliberately not built**
+>
+> research D11 records pre-generated variants as the follow-up "if T079 shows the per-request CPU is
+> a problem". Measured, unthrottled, over 12 distinct images: **mean 184 ms, slowest 532 ms, and a
+> repeat request via the ETag path 12 ms**.
+>
+> That is not a bottleneck. The storefront is network-bound by an order of magnitude — 53.6 s of
+> transfer against roughly 9 s of aggregate compute spread across 50 parallel requests — and a
+> returning visitor pays 12 ms or, inside the 60-second `max-age`, nothing at all.
+>
+> So the cache is not built. It would place a byte cache immediately beside the publication gate,
+> introducing a way for withdrawn bytes to outlive their authorisation, and would require the
+> single-photo removal path (`lib/data/designer-designs.ts:551`) to sweep derived files or silently
+> orphan them. Real risk against no measured benefit is exactly what Principle V refuses.
+>
+> **The trigger condition is retained rather than discarded.** 184 ms was measured against a local
+> Supabase, so it is a floor: on Netlify the storage download crosses a region boundary and cold
+> starts add more. Re-measure after deploy, and if per-image cost approaches the low seconds, build
+> the cache — with **flat** `{designId}/{photoId}-{width}.webp` names, so the existing non-recursive
+> `deleteDesignFiles` sweep still finds them and FR-019 does not regress.
 
 ---
 
