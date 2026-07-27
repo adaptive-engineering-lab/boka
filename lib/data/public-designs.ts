@@ -241,6 +241,34 @@ export async function getPublicDesignerProfile(): Promise<{
 }
 
 /**
+ * The internal id and title of a **published** design, for server-side writes.
+ *
+ * Exists because the inquiry route needs `design_id` for its foreign key and
+ * `design_title_snapshot` for FR-043, and neither may come from the client. It is separate
+ * from `getPublishedDesignBySlug` on purpose: `PublicDesignDetail` has no `id` field, so the
+ * internal identifier is never serialized into a page, a `<meta>` tag or a hydration payload.
+ * Widening that type to avoid this function would put the id on every detail page in exchange
+ * for saving one query.
+ *
+ * Reads `public_designs` like everything else here, so the publication gate is unchanged and
+ * still lives in exactly one place: an inquiry about a draft finds nothing, identically to a
+ * slug that never existed.
+ */
+export async function getPublishedDesignRef(
+  slug: string,
+): Promise<{ id: string; title: string } | null> {
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from('public_designs')
+    .select('id, title')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  return data ? { id: data.id, title: data.title } : null;
+}
+
+/**
  * T059 — record a view (FR-034).
  *
  * The only write an anonymous caller may perform against `design`, and it is deliberately

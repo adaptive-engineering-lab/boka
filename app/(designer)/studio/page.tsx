@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { DesignGrid, DesignGridTile } from '@/components/DesignGrid';
 import { EmptyState, NoMatchesState } from '@/components/studio/EmptyState';
 import { FilterBar } from '@/components/studio/FilterBar';
+import { UndeliveredBanner } from '@/components/studio/UndeliveredBanner';
+import { listUndeliveredInquiries } from '@/lib/data/designer-inquiries';
 import {
   listOwnCategories,
   listOwnCollections,
@@ -41,10 +43,13 @@ export default async function StudioDashboard({
 }) {
   const { category, collection, sort } = await searchParams;
 
-  const [designs, categories, collections] = await Promise.all([
+  const [designs, categories, collections, undelivered] = await Promise.all([
     listOwnDesigns({ category, collection, sort: parseSort(sort) }),
     listOwnCategories(),
     listOwnCollections(),
+    // FR-040b. Almost always empty; when it is not, email has failed and this banner is the
+    // only way she will ever learn that someone wrote to her.
+    listUndeliveredInquiries(),
   ]);
 
   const filtered = Boolean(category || collection);
@@ -52,6 +57,10 @@ export default async function StudioDashboard({
 
   return (
     <main>
+      {/* Above the heading deliberately: a failed delivery is the one thing on this screen
+          she has not already been told about by some other means (SC-015). */}
+      <UndeliveredBanner inquiries={undelivered} />
+
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-medium">Your designs</h1>
         <Link

@@ -127,6 +127,58 @@ export async function addCategory(page: Page, name: string): Promise<void> {
   await page.getByText('Category added.').waitFor({ timeout: 30_000 });
 }
 
+/**
+ * A distinct client address per caller, so rate-limit state does not leak between tests.
+ *
+ * `computeSenderHash` keys on `x-forwarded-for`, and every test in this suite runs from the
+ * same machine — so without this they all share one sender and the 5-per-hour limit (FR-041) is
+ * consumed by whichever tests happen to run first. That produced a real failure: a genuine
+ * submission answered 429 while a honeypot submission answered 200, and the honeypot assertion
+ * failed for a reason that had nothing to do with the honeypot.
+ *
+ * Giving each context its own address exercises the real header path rather than mocking around
+ * it, and makes the suite order-independent.
+ */
+export function uniqueClientHeaders(): Record<string, string> {
+  /*
+   * Random across three octets — roughly 16 million values — and not a counter.
+   *
+   * A per-process counter looked sufficient and was not: it restarts at the same value on every
+   * `playwright test` invocation, so consecutive runs reused the same addresses. The rate-limit
+   * window is an **hour**, so submissions from earlier runs were still being counted, and after a
+   * few runs a genuine submission started answering 429. The symptom was a confirmation message
+   * that never appeared, which looks nothing like a rate-limit problem.
+   *
+   * The window cannot be cleared between runs either: the owner holds no DELETE on `inquiry`
+   * (migration 0013) and these tests have no service-role key, both deliberately. So the sender
+   * has to be unique enough that an hour of runs cannot collide.
+   *
+   * 10.0.0.0/8 is private and non-routable. These strings are only ever read by
+   * `computeSenderHash`; nothing dials them.
+   */
+  const octet = () => Math.floor(Math.random() * 256);
+  return { 'x-forwarded-for': `10.${octet()}.${octet()}.${octet()}` };
+}
+
+/**
+ * Clears every undelivered inquiry from the dashboard banner by acknowledging it (FR-040c).
+ *
+ * Test cleanup deletes designs, but inquiries deliberately survive their design (FR-044), so
+ * without this they accumulate in the banner and bleed into later runs. Acknowledging rather
+ * than deleting is not a workaround — the owner holds no DELETE privilege on `inquiry` at all
+ * (migration 0013), so this is the only capability she actually has, which makes it the right
+ * thing for a test to use.
+ */
+export async function clearUndeliveredBanner(page: Page): Promise<void> {
+  for (let pass = 0; pass < 25; pass += 1) {
+    await page.goto('/studio');
+    const button = page.getByRole('button', { name: 'Mark as seen' }).first();
+    if ((await button.count()) === 0) return;
+    await button.click();
+    await page.waitForURL('**/studio', { timeout: 30_000 }).catch(() => {});
+  }
+}
+
 /** Reads the design's public slug off the edit page. */
 export async function readSlug(page: Page, id: string): Promise<string> {
   await page.goto(`/studio/designs/${id}`);

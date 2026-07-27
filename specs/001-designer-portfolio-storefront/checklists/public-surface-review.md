@@ -72,6 +72,27 @@ by a design that had already passed a Constitution Check.
 > nothing. It now reads the cookie, asserts the token was extracted before using it, and was checked
 > adversarially: the token refreshes with **200 before** sign-out and **400 after**.
 
+> ### Run 4 — US3, the inquiry surface (2026-07-27)
+>
+> The first submission a visitor can make anywhere on this site, so the whole checklist was
+> re-run. **The two items marked N/A since Run 1 are now assessable and ticked** — they described
+> code that did not exist until this increment.
+>
+> One new item was added for FR-046 (inquiry data is the designer's alone), and the Principle I
+> item gained a Run 4 note: the public surface now has exactly one write, and it is the one the
+> constitution explicitly permits.
+>
+> 38/38 end-to-end specs and 16/16 integration tests pass on both engines, across two
+> consecutive full runs.
+>
+> **A test-isolation defect was found and fixed during this run.** The E2E suite ran every
+> submission from one machine, so all tests shared a `sender_hash` and consumed the 5-per-hour
+> limit between them; a genuine submission started answering 429 while a honeypot submission
+> answered 200, and the honeypot assertion failed for a reason unrelated to the honeypot. Each
+> visitor context now carries its own `x-forwarded-for`. The first fix — a per-process counter —
+> was **not** sufficient: it restarts on every invocation, and with an hour-long window the
+> previous run's submissions were still counted. It is now random across three octets.
+
 ### Principle II — nothing private becomes reachable
 
 - [X] Every new or changed public read goes through a `public_*` view with an **explicit column list**, not a base table
@@ -116,12 +137,16 @@ by a design that had already passed a Constitution Check.
       — the bar carries no sign-in control and no hint that an authenticated surface exists; the anonymous body contains none of `Back to the studio`, `viewing your storefront`, `/studio` or `/auth/sign-in`. It changes navigation only, never which data the page reads — public pages still read published, public fields for everyone, including for her.
 - [X] The owner check cannot reach a not-found response *(new in Run 3)*
       — on the detail page `isOwnerViewing()` runs **after** the design has been found. Resolving the viewer before the gate would make the designer's 404 differ from a visitor's, and FR-023's "draft, deleted and nonexistent are indistinguishable" would silently narrow to "…for anonymous requests only". `session-lifecycle.spec.ts` requests a draft slug with and without a session and requires both 404s to match.
+- [X] Inquiry data is reachable by the designer alone, and its existence is not disclosed *(new in Run 4, FR-046)*
+      — no public page reveals that anyone has written, or how many have. `inquiry` denies `anon` SELECT outright, so a visitor cannot read inquiries **including their own** — there is no session to scope "their own" to, and the fact that someone wrote is itself the disclosure. Acknowledging one clears the banner without deleting the record (FR-040c); the owner holds no DELETE privilege at all, so v1 cannot destroy a lead even by accident (FR-045).
 - [X] The designer can end her session, and ending it revokes it server-side *(new in Run 3, FR-001a)*
       — `signOut()` runs at its default global scope, so the refresh token is revoked at the auth server rather than merely dropped from the browser. Verified adversarially: the captured refresh token returns **200 before** sign-out and **400 after**, so the assertion can genuinely fail.
-- [ ] Inquiry submission remains the only visitor action, and the **write is still server-mediated**
-      — **N/A this increment.** There is no inquiry surface until T066–T069 (US3). Left unticked deliberately: ticking it now would record a guarantee about code that does not exist.
-- [ ] Honeypot and rate-limit checks cannot be bypassed by calling the data layer directly
-      — **N/A this increment.** Same reason. `inquiry` has no table yet (T064).
+- [X] Inquiry submission remains the only visitor action, and the **write is still server-mediated** *(N/A in Runs 1–3; first assessable in Run 4)*
+      — the form is the one submission on the public surface; everything else remains a read. The insert happens in `app/(public)/d/{slug}/inquire/route.ts` using the service-role key, after the honeypot, rate-limit and validation checks. `view-only.spec.ts` still finds no other non-GET form on any public page, and submitting grants no account, session or cookie (asserted in `inquiry.spec.ts`, FR-004).
+      An inquiry about a **draft** is refused with the same 404 a nonexistent slug gets — the route resolves the design through `public_designs`, so it cannot become an enumeration oracle for unpublished work.
+- [X] Honeypot and rate-limit checks cannot be bypassed by calling the data layer directly *(N/A in Runs 1–3; first assessable in Run 4)*
+      — `inquiry` grants `anon` nothing at all: migration 0013 revokes everything, forces RLS, and asserts in a DO block that no anonymous grant *or* policy exists. `inquiry-abuse.test.ts` attacks the REST endpoint with the key a browser actually holds and requires ≥400 for INSERT, SELECT, PATCH and DELETE — including an insert that tries to choose its own `sender_hash` and `delivery_state`, which is exactly what a bypass would want.
+      The sender identity is computed from the request and never accepted from the caller, so the limit cannot be evaded by varying a string.
 
 ### Tests
 

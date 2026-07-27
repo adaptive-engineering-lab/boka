@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { InquiryForm } from '@/components/public/InquiryForm';
 import { OwnerBar } from '@/components/public/OwnerBar';
 import { isOwnerViewing } from '@/lib/auth/owner-view';
 import { getPublishedDesignBySlug, incrementDesignView } from '@/lib/data/public-designs';
@@ -118,11 +119,13 @@ export default async function DesignDetailPage({ params }: { params: Promise<{ s
       ) : null}
 
       {/*
-        Nothing else belongs on this page in v1.
-        No price, no cart, no "add to favourites", no comments (FR-032, Principle I). The
-        inquiry form is T066, in the US3 increment — until then the only action a visitor has
-        is going back to the grid, and that is deliberate rather than unfinished.
+        The inquiry form is the ONLY thing a visitor may submit anywhere on this site
+        (FR-036, Principle I). Still no price, no cart, no "add to favourites", no comments
+        (FR-032) — and nothing here reveals whether anyone else has written (FR-046).
       */}
+      <section className="mt-12 border-t border-gray-200 pt-8">
+        <InquiryForm slug={design.slug} designTitle={design.title} />
+      </section>
     </main>
   );
 }

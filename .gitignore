@@ -35,6 +35,11 @@ yarn-error.log*
 !.vscode/extensions.json
 .idea/
 
+# Vim swap files. Transient — they appear while a buffer is open and vanish when it closes,
+# which is enough to abort a `git add` that listed one a moment earlier.
+*.sw[a-p]
+*~
+
 # Vercel / build metadata
 .vercel
 *.tsbuildinfo

@@ -273,18 +273,18 @@ designer is notified with the correct design named. Submit a malformed email and
 delivery deliberately and confirm the dashboard banner surfaces the lead. Attempt a direct data-layer
 insert with the anon key and confirm rejection.
 
-- [ ] T064 [US3] Migration for the `inquiry` table — `on delete set null`, `design_title_snapshot`, `delivery_state` enum, `read` flag (v1.1-facing, never written in v1), `(sender_hash, created_at)` index (FR-038, FR-043, FR-044) — in `supabase/migrations/0012_inquiry.sql`
-- [ ] T065 [US3] Migration for inquiry RLS: owner-only read/update/delete, **no anonymous `INSERT` and no anonymous `SELECT`** (FR-041c, FR-046), in `supabase/migrations/0013_inquiry_rls.sql`
-- [ ] T066 [US3] Build the inquiry form with name, email, optional message, and the hidden honeypot field (FR-036, FR-041a) in `components/public/InquiryForm.tsx`
-- [ ] T067 [P] [US3] Implement email-format validation with field-level errors (FR-037) in `lib/inquiries/validate.ts`
-- [ ] T068 [P] [US3] Implement the rate limit — 5/hour, 20/day against a **server-computed** salted `sender_hash` (FR-041) — in `lib/inquiries/rate-limit.ts`
-- [ ] T069 [US3] Build the submit route in the contract's order — honeypot → rate limit → validate → **server-side insert** → respond → deliver — in `app/(public)/d/[slug]/inquire/route.ts`
-- [ ] T070 [US3] Implement Resend delivery inside `after()` with 3 attempts and backoff (FR-040a) in `lib/inquiries/deliver.ts`
-- [ ] T071 [US3] Migration for the `pg_cron` sweep running **every 2 minutes**, retrying `pending` rows and marking exhausted ones `undelivered` (FR-040b, SC-006), in `supabase/migrations/0014_delivery_sweep.sql`
-- [ ] T072 [US3] Build the undelivered-inquiry banner with visitor details readable inline (FR-040b) in `components/studio/UndeliveredBanner.tsx`
-- [ ] T073 [US3] Build the acknowledge route that clears the banner without deleting the record (FR-040c) in `app/(designer)/studio/inquiries/[id]/acknowledge/route.ts`
-- [ ] T074 [P] [US3] Integration test: rate limit rejects the 6th submission; a filled honeypot is indistinguishable from success and stores nothing; **a direct anon-key insert against the data layer is rejected** (FR-041c, SC-016), in `tests/integration/inquiry-abuse.test.ts`
-- [ ] T075 [US3] E2E test: successful inquiry, **and** the delivery-failure path — visitor still confirmed, record persists, banner appears (SC-015) — in `tests/e2e/inquiry.spec.ts`
+- [X] T064 [US3] Migration for the `inquiry` table — `on delete set null`, `design_title_snapshot`, `delivery_state` enum, `read` flag (v1.1-facing, never written in v1), `(sender_hash, created_at)` index (FR-038, FR-043, FR-044) — in `supabase/migrations/0012_inquiry.sql`
+- [X] T065 [US3] Migration for inquiry RLS: owner-only read/update/delete, **no anonymous `INSERT` and no anonymous `SELECT`** (FR-041c, FR-046), in `supabase/migrations/0013_inquiry_rls.sql`
+- [X] T066 [US3] Build the inquiry form with name, email, optional message, and the hidden honeypot field (FR-036, FR-041a) in `components/public/InquiryForm.tsx`
+- [X] T067 [P] [US3] Implement email-format validation with field-level errors (FR-037) in `lib/inquiries/validate.ts`
+- [X] T068 [P] [US3] Implement the rate limit — 5/hour, 20/day against a **server-computed** salted `sender_hash` (FR-041) — in `lib/inquiries/rate-limit.ts`
+- [X] T069 [US3] Build the submit route in the contract's order — honeypot → rate limit → validate → **server-side insert** → respond → deliver — in `app/(public)/d/[slug]/inquire/route.ts`
+- [X] T070 [US3] Implement Resend delivery inside `after()` with 3 attempts and backoff (FR-040a) in `lib/inquiries/deliver.ts`
+- [X] T071 [US3] Migration for the `pg_cron` sweep running **every 2 minutes**, retrying `pending` rows and marking exhausted ones `undelivered` (FR-040b, SC-006), in `supabase/migrations/0014_delivery_sweep.sql`
+- [X] T072 [US3] Build the undelivered-inquiry banner with visitor details readable inline (FR-040b) in `components/studio/UndeliveredBanner.tsx`
+- [X] T073 [US3] Build the acknowledge route that clears the banner without deleting the record (FR-040c) in `app/(designer)/studio/inquiries/[id]/acknowledge/route.ts`
+- [X] T074 [P] [US3] Integration test: rate limit rejects the 6th submission; a filled honeypot is indistinguishable from success and stores nothing; **a direct anon-key insert against the data layer is rejected** (FR-041c, SC-016), in `tests/integration/inquiry-abuse.test.ts`
+- [X] T075 [US3] E2E test: successful inquiry, **and** the delivery-failure path — visitor still confirmed, record persists, banner appears (SC-015) — in `tests/e2e/inquiry.spec.ts`
 
 > **T069's ordering is the requirement, not an implementation preference.** The visitor's confirmation
 > must not depend on email delivery: US3 scenario 5 requires a normal confirmation while email is down.
@@ -292,6 +292,40 @@ insert with the anon key and confirm rejection.
 > **T065 is why T074's direct-insert assertion matters.** With anonymous `INSERT` granted, a bot could
 > POST straight to the data layer and skip the honeypot and rate limit entirely — the checks would apply
 > only to clients that chose to cooperate.
+
+> ### ✓ US3 verified (2026-07-27)
+>
+> All 12 tasks implemented. `typecheck`, `lint`, `build`, **16/16 integration tests** and **38/38
+> end-to-end specs** pass on both engines, across two consecutive full runs. The public-surface
+> review was re-run as **Run 4**, which finally closes the two items that had been N/A since Run 1
+> — they described code that did not exist until now.
+>
+> **The delivery-failure path is the default locally, not an edge case.** `RESEND_API_KEY` is
+> unset, so every send fails and US3 scenario 5 is exercised on every run: the visitor still sees
+> a normal confirmation, the record still persists, and the banner still surfaces it. A design
+> that coupled the visitor's confirmation to the email would pass a happy-path test and lose
+> messages silently in production. The specs skip loudly rather than fail confusingly if a real
+> key is ever configured.
+>
+> **The `pg_cron` sweep was verified functionally, not merely scheduled.** Marking it "active" in
+> `cron.job` proves nothing about what it does. Given three rows — pending and 5 minutes old,
+> pending and fresh, already delivered — it swept exactly one: the stranded row became
+> `undelivered`, the fresh one was left alone to finish retrying, and the delivered one was
+> untouched.
+>
+> | Design point | Why it is that way |
+> |---|---|
+> | Sweep marks rows; it does not send email | Retry with backoff (FR-040a) lives in `after()` where there is an HTTP client and a key. `pg_net` is installed and *could* POST to Resend, but that would put notification logic in two languages with two credential paths. Principle V. |
+> | Sweep threshold 3 min, cadence 2 min | `after()` finishes in seconds, so 3 minutes pending means stranded. 3 + 2 = 5 worst case, which is SC-006's budget exactly. |
+> | Rate limit fails **open** on a database error | The choice is between allowing an extra submission and dropping a real one. FR-040 is unambiguous, and an inquiry is a person waiting for a reply. |
+> | Salt falls back to a per-process random value | A fixed fallback would keep the limit working while making every stored IP hash reversible; a random one costs only that counting windows reset on restart. The service-role key was the first choice and `no-service-key.test.ts` correctly rejected it. |
+>
+> **Two test defects were caught and fixed here.** A vacuous assertion — `expect(grants).toBeNull()`
+> against an RPC that does not exist — was replaced with real coverage of the rate limiter against
+> the live table. And the suite shared one `sender_hash` across every test, so the hourly limit was
+> consumed between them; each visitor context now carries its own `x-forwarded-for`, randomised
+> across three octets because a per-process counter restarts every run while the window is an hour
+> long.
 
 **Checkpoint**: all three user stories complete; the feature is functionally whole.
 
@@ -303,7 +337,7 @@ insert with the anon key and confirm rejection.
 - [ ] T077 [P] E2E accessibility test: zero axe-core WCAG 2.1 AA violations on storefront, detail, and dashboard (SC-013) in `tests/e2e/accessibility.spec.ts`
 - [ ] T078 [P] E2E test: a keyboard-only visitor can browse, open a design, and inquire (SC-014) in `tests/e2e/keyboard.spec.ts`
 - [ ] T079 [P] Seed 50 designs averaging 3 photos and measure LCP at a 400 kbps / 400 ms RTT profile, filter/sort latency, and cumulative layout shift (SC-004, SC-009, SC-012) in `tests/perf/seed-and-measure.ts`
-- [ ] T080 Create the public-surface review checklist that any change touching a public route, public view, or the `published` flag must pass before merge (constitution Quality Gates) in `specs/001-designer-portfolio-storefront/checklists/public-surface-review.md`
+- [X] T080 Create the public-surface review checklist that any change touching a public route, public view, or the `published` flag must pass before merge (constitution Quality Gates) in `specs/001-designer-portfolio-storefront/checklists/public-surface-review.md`
 - [ ] T081 Disable public sign-up and provision the single owner account, recording the steps in `supabase/config.toml`
 - [ ] T082 Exercise every designer-facing flow at mobile viewport width, **timing the capture-to-publish flow (SC-001) and counting taps from homepage to detail (SC-005)**, and tick off the smoke checklist in `specs/001-designer-portfolio-storefront/quickstart.md`
 
@@ -313,6 +347,12 @@ insert with the anon key and confirm rejection.
 > **T080 closes the one constitutional gate with no artifact.** The constitution mandates a
 > public-surface review on every change touching a public route or the `published` flag, but nothing
 > existed to perform it; `checklists/requirements.md` is a spec-quality checklist, not this gate.
+>
+> *Completed ahead of its phase, in Phase 4.* The gate is not something that can be built after the
+> public surface it governs — Phase 4 introduced the storefront, which is the first change requiring
+> the review, so waiting for Phase 6 would have meant merging the public routes with the mandated
+> check unperformed. The checklist has since been run four times (Runs 1–4: storefront, the `/img`
+> amendment, session lifecycle, and the inquiry surface), and each run is recorded in the file.
 
 > **T082 is required, not optional.** The constitution requires designer-facing flows to be exercised at
 > mobile width before a feature counts as done, and SC-001 and SC-005 are otherwise never measured.
