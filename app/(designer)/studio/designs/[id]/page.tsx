@@ -6,11 +6,13 @@ import { AddPhotosForm } from '@/components/studio/AddPhotosForm';
 import { AltTextField } from '@/components/studio/AltTextField';
 import { DeleteDesignDialog } from '@/components/studio/DeleteDesignDialog';
 import { DesignGridTile } from '@/components/DesignGrid';
+import { PublishToggle } from '@/components/studio/PublishToggle';
 import {
   deleteOwnDesign,
   getOwnDesign,
   listOwnCategories,
   removeOwnPhoto,
+  setPublished,
   updateOwnDesign,
   updatePhotoAltText,
 } from '@/lib/data/designer-designs';
@@ -47,6 +49,11 @@ export default async function EditDesignPage({
   // arrive here identically — which is the right answer for both.
   if (!design) notFound();
 
+  // Captured before the server actions close over it. The slug is what the public routes
+  // are keyed on, so every mutation below has to revalidate `/d/{slug}` as well as the
+  // studio — otherwise a withdrawn design keeps being served from a cached page.
+  const slug = design.slug;
+
   async function save(formData: FormData) {
     'use server';
 
@@ -74,6 +81,10 @@ export default async function EditDesignPage({
 
     revalidatePath('/studio');
     revalidatePath(`/studio/designs/${id}`);
+    // An edit can change the title, category, collection or public description, all of
+    // which the storefront renders.
+    revalidatePath('/');
+    revalidatePath(`/d/${slug}`);
     redirect(`/studio/designs/${id}?saved=1`);
   }
 
@@ -91,13 +102,30 @@ export default async function EditDesignPage({
     redirect(`/studio/designs/${id}`);
   }
 
+  async function togglePublished(next: boolean) {
+    'use server';
+
+    await setPublished(id, next);
+
+    // No storage work in either direction (FR-009a). Image access is gated by `/img`
+    // re-checking publication per request, not by where the file lives, so a publish
+    // toggle can never leave rows and objects disagreeing about visibility.
+    revalidatePath('/studio');
+    revalidatePath(`/studio/designs/${id}`);
+    revalidatePath('/');
+    revalidatePath(`/d/${slug}`);
+  }
+
   async function destroy() {
     'use server';
 
     // Removes the row, cascades the photo rows, and deletes BOTH storage prefixes —
     // the cascade does not touch object storage (FR-019). Inquiries survive (FR-044).
     await deleteOwnDesign(id);
+
     revalidatePath('/studio');
+    revalidatePath('/');
+    revalidatePath(`/d/${slug}`);
     redirect('/studio');
   }
 
@@ -140,6 +168,10 @@ export default async function EditDesignPage({
           {error}
         </p>
       ) : null}
+
+      <div className="mb-6">
+        <PublishToggle published={design.published} action={togglePublished} />
+      </div>
 
       <p className="mb-6 rounded bg-gray-50 px-3 py-2 text-sm text-gray-700">
         <span className="font-medium">Public address:</span>{' '}

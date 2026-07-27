@@ -165,19 +165,19 @@ piece, and can reach nothing the designer has not published — including no ima
 session. Published designs browse, filter, and sort; drafts are absent from the grid, unreachable by
 direct URL, and their image URLs 404; no private note text appears anywhere in the page.
 
-- [ ] T051 [US2] Build the published/draft toggle (FR-021, FR-026) in `components/studio/PublishToggle.tsx`
-- [ ] T052 [US2] Build the storefront homepage — the grid *is* the homepage (FR-027) — in `app/(public)/page.tsx`
-- [ ] T053 [P] [US2] Build the designer bio and profile photo header from `public_designer_profile` (FR-028) in `components/public/DesignerHeader.tsx`
-- [ ] T054 [US2] Build the public grid using `next/image` against the `/img` route, with stored dimensions and blur placeholders (FR-011, SC-012) in `components/public/PublicGrid.tsx`
-- [ ] T055 [US2] Build the design detail page rendering all photos in order plus `public_description` (FR-031) in `app/(public)/d/[slug]/page.tsx`
-- [ ] T056 [P] [US2] Build public filter controls (category, collection — sourced from `public_categories` so draft-only values never appear) and sort controls (newest, oldest, title) (FR-030, FR-030a) in `components/public/PublicFilterBar.tsx`
-- [ ] T057 [P] [US2] Build the "coming soon" and "nothing matches" states (FR-033) in `components/public/EmptyStorefront.tsx`
-- [ ] T058 [US2] Implement the not-found path so draft, deleted, and nonexistent slugs return **byte-identical** 404s (FR-023) in `app/(public)/d/[slug]/not-found.tsx`
-- [ ] T059 [US2] Call `increment_design_view` on detail render, storing without displaying (FR-034), in `app/(public)/d/[slug]/page.tsx`
-- [ ] T060 [US2] **MANDATORY** E2E test: draft, deleted, and nonexistent slugs are indistinguishable; drafts absent from the grid; **and an image URL captured while published returns 404 after unpublish and after delete** (FR-023, FR-009a, SC-002, SC-017), in `tests/e2e/draft-invisibility.spec.ts`
-- [ ] T061 [US2] **MANDATORY** E2E test: a `notes` sentinel appears nowhere in the raw response body, metadata, or hydration payload (FR-024, SC-003), in `tests/e2e/notes-privacy.spec.ts`
-- [ ] T062 [P] [US2] E2E test: no buy, cart, checkout, comment, favourite, or edit affordance on any public page; no `original_path` in any response (FR-032, FR-010, SC-010) in `tests/e2e/view-only.spec.ts`
-- [ ] T063 [P] [US2] E2E test: a category used only by drafts is absent from the public filter control (FR-030a) in `tests/e2e/filter-leakage.spec.ts`
+- [X] T051 [US2] Build the published/draft toggle (FR-021, FR-026) in `components/studio/PublishToggle.tsx`
+- [X] T052 [US2] Build the storefront homepage — the grid *is* the homepage (FR-027) — in `app/(public)/page.tsx`
+- [X] T053 [P] [US2] Build the designer bio and profile photo header from `public_designer_profile` (FR-028) in `components/public/DesignerHeader.tsx`
+- [X] T054 [US2] Build the public grid using `next/image` against the `/img` route, with stored dimensions and blur placeholders (FR-011, SC-012) in `components/public/PublicGrid.tsx`
+- [X] T055 [US2] Build the design detail page rendering all photos in order plus `public_description` (FR-031) in `app/(public)/d/[slug]/page.tsx`
+- [X] T056 [P] [US2] Build public filter controls (category, collection — sourced from `public_categories` so draft-only values never appear) and sort controls (newest, oldest, title) (FR-030, FR-030a) in `components/public/PublicFilterBar.tsx`
+- [X] T057 [P] [US2] Build the "coming soon" and "nothing matches" states (FR-033) in `components/public/EmptyStorefront.tsx`
+- [X] T058 [US2] Implement the not-found path so draft, deleted, and nonexistent slugs return **byte-identical** 404s (FR-023) in `app/(public)/d/[slug]/not-found.tsx`
+- [X] T059 [US2] Call `increment_design_view` on detail render, storing without displaying (FR-034), in `app/(public)/d/[slug]/page.tsx`
+- [X] T060 [US2] **MANDATORY** E2E test: draft, deleted, and nonexistent slugs are indistinguishable; drafts absent from the grid; **and an image URL captured while published returns 404 after unpublish and after delete** (FR-023, FR-009a, SC-002, SC-017), in `tests/e2e/draft-invisibility.spec.ts`
+- [X] T061 [US2] **MANDATORY** E2E test: a `notes` sentinel appears nowhere in the raw response body, metadata, or hydration payload (FR-024, SC-003), in `tests/e2e/notes-privacy.spec.ts`
+- [X] T062 [P] [US2] E2E test: no buy, cart, checkout, comment, favourite, or edit affordance on any public page; no `original_path` in any response (FR-032, FR-010, SC-010) in `tests/e2e/view-only.spec.ts`
+- [X] T063 [P] [US2] E2E test: a category used only by drafts is absent from the public filter control (FR-030a) in `tests/e2e/filter-leakage.spec.ts`
 
 > **T061 must assert against the raw response body, not the rendered DOM.** A field serialized into a
 > hydration payload but never displayed is still a leak, and is precisely the failure this gate exists
@@ -186,6 +186,54 @@ direct URL, and their image URLs 404; no private note text appears anywhere in t
 > **T060's image-revocation assertion is the one that would have caught the original defect.** The first
 > design served display variants from a public bucket, so a photograph stayed downloadable forever once
 > its design had been published. Nothing in the previous test plan would have noticed.
+
+> ### ✓ US2 verified against a production build (2026-07-26)
+>
+> All 13 tasks implemented. 9 end-to-end specs pass on **both** Playwright projects (desktop
+> Chromium, iPhone 14 WebKit), plus `typecheck`, `lint`, `build` and 11 integration tests. The
+> mandated public-surface review has been run for the first time and is recorded in
+> [checklists/public-surface-review.md](./checklists/public-surface-review.md) — 17 items ticked,
+> 2 marked N/A because the inquiry surface does not exist until US3.
+>
+> **The E2E suite now runs against a production build**, not `next dev`. T060 and T061 assert on
+> the bytes a visitor receives, and a dev server embeds error-overlay payloads and stack traces
+> that no visitor ever sees: the byte-identical 404 comparison failed on that noise, and — the
+> real problem — a passing comparison of dev output would have proved nothing about production.
+> `E2E_DEV=1` opts back into the dev server for non-privacy specs.
+>
+> **T060's byte comparison had a latent flake, now fixed.** React streams the RSC payload as a
+> series of `self.__next_f.push(...)` chunks whose emission order is non-deterministic: two 404s
+> of identical length (12622 bytes each) were caught diverging at offset 8675 purely in chunk
+> sequence. It surfaced in T063 first and would eventually have hit T060 — and a mandatory gate
+> that fails at random gets ignored, which is worse than having no gate on a non-negotiable
+> principle. `tests/e2e/helpers/canonical.ts` now sorts the chunks before comparing while leaving
+> their contents and all rendered markup untouched, so the assertion stays strict about content.
+> Confirmed with three consecutive full-suite runs: 20/20 on both engines.
+>
+> **Two public surfaces were added beyond the task list**, both because T053 and T054 could not
+> be built without them:
+>
+> | Addition | Why | How it is gated |
+> |---|---|---|
+> | `app/img/profile/route.ts` | FR-028 requires the profile photo on the homepage, and both buckets are private. Embedding a signed URL in the HTML would have worked, but it breaks the property the review checklist asserts — *every* visitor-facing image comes from `/img`. | No publication gate, deliberately: name, bio and photo are public by definition. Reads the path from `public_designer_profile` (no `email`), issues a 60s signed URL into the private `display` bucket. Has its own test. |
+> | `incrementDesignView()` in `public-designs.ts` | T059 needed a data-layer call for the existing `increment_design_view` RPC. | Called only after the publication check passes, and swallows its own errors so a failed counter can never fail a render. |
+>
+> **Public images are rendered `unoptimized`, and that is a Principle II decision.** Next's image
+> optimiser caches derived bytes keyed on the source URL, with a lifetime taken from the upstream
+> response — and upstream is a 302 into Supabase Storage, whose cache headers this project does
+> not control (`minimumCacheTTL` is a floor, not a ceiling). An optimised tile could therefore
+> keep being served after `/img` itself began answering 404: the public-bucket defect again, one
+> layer up, and invisible to T060 because T060 asserts against the `/img` URL. Unoptimised means
+> the browser re-requests `/img` every load, so revocation is immediate. Blur placeholders and
+> reserved dimensions are unaffected, so SC-012 still holds.
+>
+> **Known cost, not yet paid off:** `/img` redirects to the single stored display variant
+> (longest edge 2048px) regardless of the width in its path, so the width parameter is currently
+> decorative and a grid tile downloads more bytes than it needs. This is a live risk to SC-004's
+> 3-second LCP budget, measured in **T079**. The remedy is per-width variants at upload or
+> resizing inside `/img` — **not** reintroducing a cache in front of the publication gate.
+> Revisiting it would amend the `/img` decision recorded in [plan.md](./plan.md) Complexity
+> Tracking, so it is flagged rather than done unilaterally.
 
 **Checkpoint**: the storefront is live and every Principle II gate is enforced by CI.
 

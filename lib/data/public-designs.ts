@@ -241,6 +241,28 @@ export async function getPublicDesignerProfile(): Promise<{
 }
 
 /**
+ * T059 — record a view (FR-034).
+ *
+ * The only write an anonymous caller may perform against `design`, and it is deliberately
+ * incapable of anything else: `increment_design_view` is `SECURITY DEFINER`, takes a slug,
+ * touches one counter on a **published** row, and returns nothing. It cannot be used to
+ * modify a design, and — because it returns nothing either way — it cannot be used to probe
+ * whether a draft exists.
+ *
+ * Errors are swallowed on purpose. A failed counter increment must never turn into a failed
+ * page render: the count is a v1.1 feature that is merely being *recorded* now (FR-034), and
+ * a visitor being shown an error because a statistic did not save would be absurd.
+ */
+export async function incrementDesignView(slug: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    await supabase.rpc('increment_design_view', { design_slug: slug });
+  } catch {
+    // Intentionally silent. See above.
+  }
+}
+
+/**
  * Look up one photo for the /img route (FR-009a).
  *
  * Reads `public_photos`, so a photo belonging to a draft or deleted design returns null

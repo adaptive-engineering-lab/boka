@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { createDesign, deleteDesign, signIn } from './helpers/studio';
+import { createDesign, deleteDesign, saveDesignChanges, signIn } from './helpers/studio';
 
 /**
  * T050 — the archive is the same from any device (SC-008, FR-020, Principle IV).
@@ -76,8 +76,7 @@ test('an archive built on one device is identical on another', async ({ browser 
     // --- Edit on the laptop, read it back on the phone. ---
     const editedTitle = `${title} (revised)`;
     await laptopPage.getByLabel('Title').fill(editedTitle);
-    await laptopPage.getByRole('button', { name: 'Save changes' }).click();
-    await laptopPage.waitForURL(/saved=1/);
+    await saveDesignChanges(laptopPage);
 
     await phonePage.goto('/studio');
     await expect(phonePage.getByText(editedTitle)).toBeVisible();
@@ -110,8 +109,7 @@ test('a rename does not change the design’s public address', async ({ page }) 
     const address = await page.getByText('/d/', { exact: false }).first().innerText();
 
     await page.getByLabel('Title').fill('An Entirely New Name');
-    await page.getByRole('button', { name: 'Save changes' }).click();
-    await page.waitForURL(/saved=1/);
+    await saveDesignChanges(page);
 
     await expect(page.getByText('An Entirely New Name').first()).toBeVisible();
     await expect(page.getByText('/d/', { exact: false }).first()).toHaveText(address);
