@@ -278,7 +278,7 @@ Set these in **Site configuration → Environment variables**. The first four ar
 | `NEXT_PUBLIC_SUPABASE_URL` | The hosted project, not `127.0.0.1`. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Subject to RLS; safe in the browser. |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Bypasses RLS entirely.** Never prefix `NEXT_PUBLIC_`. |
-| `RESEND_API_KEY`, `INQUIRY_FROM_EMAIL` | Without these every notification fails and every inquiry lands in the dashboard banner instead (FR-040b). Correct behaviour, but not the intended one. |
+| `RESEND_API_KEY`, `INQUIRY_FROM_EMAIL` | **Deliberately unset at launch** — SC-006 is deferred to v1.1 (spec Clarifications, 2026-07-27). Every notification fails and every inquiry reaches the designer through the dashboard banner instead (FR-040b). Setting both reactivates SC-006 with no code change. |
 | `RATE_LIMIT_SALT` | **Required in production.** See below. |
 
 ### Two things that will not announce themselves
@@ -396,4 +396,4 @@ recorded fact rather than a mystery.
 - [ ] `RATE_LIMIT_SALT` set in the production environment — without it the rate limit is off (FR-041)
 - [ ] Hosted Supabase: email signup disabled in the dashboard, not only in `config.toml` (T081)
 - [ ] `cron.job` shows `boka-delivery-sweep` at `*/2 * * * *` on the hosted project (T010, SC-006)
-- [ ] One real inquiry email received within 5 minutes, naming the right design (SC-006)
+- [x] ~~One real inquiry email received within 5 minutes, naming the right design (SC-006)~~ — **deferred to v1.1.** Instead verified on production 2026-07-27: a real submission returned a normal confirmation and persisted as `undelivered` with the correct title snapshot, so the banner carries it (SC-007, SC-015).

@@ -69,6 +69,30 @@ at all on the way out or back.
   declined to keep this change to the one problem observed. The detail page's "All designs" link is the
   only wayfinding v1 offers, and no one has reported it as insufficient.
 
+### Session 2026-07-27 (email notifications deferred)
+
+- Q: Can SC-006 — an email notification within 5 minutes — be deferred, given the designer sees every
+  inquiry in the dashboard banner when she signs in? → A: **Yes, deferred to v1.1**, with the trade
+  stated rather than glossed. SC-006 already names the banner as the guarantee during a provider
+  outage; this extends that from "the provider is down" to "no provider is configured yet". Nothing in
+  the code changes — `RESEND_API_KEY` simply stays unset, every send fails, and FR-040b's banner
+  carries the load, which is the path the system was built to survive.
+- Q: What does that actually cost? → A: **Response latency becomes a function of how often the
+  designer signs in, not of minutes.** A visitor who writes on Friday waits until she next opens the
+  studio. For a one-person portfolio at launch scale this is a judgement call about her habits rather
+  than a technical risk, and it is reversible in the time it takes to set two environment variables —
+  the delivery path is built, tested and unchanged.
+- Q: What had to be true before accepting it? → A: **That the banner works in production**, not just
+  in tests. Verified 2026-07-27 by submitting a real inquiry to the deployed site: the visitor received
+  a normal confirmation, the record persisted with `delivery_state = 'undelivered'` and the correct
+  `design_title_snapshot`, so it reaches the banner immediately rather than waiting on the sweep. This
+  mattered because the banner stops being a *fallback* under this decision and becomes the **only**
+  channel — and because the same day proved that local and production can diverge in ways no local
+  test can see (see T095).
+- Q: Does anything become unverifiable? → A: **SC-006 alone.** SC-007 (every inquiry recorded) and
+  SC-015 (the designer learns of it despite a failed send) are now verified against production rather
+  than only locally, which is stronger evidence than they had before this decision.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Designer builds her design archive (Priority: P1)
@@ -438,9 +462,13 @@ with a malformed email and confirm the form rejects it before submission.
 - **SC-004**: The storefront reaches Largest Contentful Paint in under 3 seconds at a 400 kbps downlink
   / 400 ms round-trip throttle profile, measured on the grid page with a cold cache.
 - **SC-005**: A visitor can go from the homepage to a specific design's full detail in two taps or fewer.
-- **SC-006**: When the email provider is available, the designer receives an inquiry notification within
-  5 minutes of submission, identifying the correct design in 100% of cases. During a provider outage this
-  budget does not apply and FR-040b's dashboard banner is the guarantee instead.
+- **SC-006** *(DEFERRED to v1.1 — see Clarifications, Session 2026-07-27)*: When the email provider is
+  available, the designer receives an inquiry notification within 5 minutes of submission, identifying
+  the correct design in 100% of cases. During a provider outage this budget does not apply and
+  FR-040b's dashboard banner is the guarantee instead. **No provider is configured at launch**, so the
+  banner is the only channel; response latency depends on how often the designer signs in. The delivery
+  code is built and tested — setting `RESEND_API_KEY` and `INQUIRY_FROM_EMAIL` reactivates this
+  criterion with no code change.
 - **SC-007**: 100% of submitted inquiries are recorded, including those whose notification failed to send.
 - **SC-008**: The designer's full archive is identical across two different devices immediately after
   signing in on the second.
