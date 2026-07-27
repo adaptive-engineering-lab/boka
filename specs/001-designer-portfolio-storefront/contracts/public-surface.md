@@ -91,25 +91,50 @@ no other way to reach a file (FR-009a, research D11).
 
 1. Look up `photo_id` in `public_photos`, which is gated on the parent design being published.
 2. **No row → 404**, identical for a draft's photo, a deleted design's photo, and a nonexistent id.
-3. Row found → issue a **60-second** signed URL for the display object and redirect to it.
+3. Row found → **only now** consider `If-None-Match`; a matching `ETag` of `"{photo_id}-{width}"` → 304.
+4. Otherwise read the display object and return its **bytes, resized to `{width}`**, as `image/webp` with
+   `Cache-Control: private, max-age=60, must-revalidate`.
 
 | Requested | Response |
 |---|---|
-| Photo of a published design | 302 to a 60s signed URL |
-| **Photo of a draft design** | **404** |
+| Photo of a published design | **200 with resized `image/webp` bytes** |
+| Same, with a matching `If-None-Match` | 304 |
+| **Photo of a draft design** | **404** — including when `If-None-Match` matches |
 | Photo of a deleted design | 404 |
 | Nonexistent photo id | 404 |
+| Width not in the allowed set | 404 |
 | Any original-resolution file | **404 — no route exposes originals** |
 
 > **This route exists because publication state changes after URLs are handed out.** Serving display
 > variants from a public bucket meant a photograph stayed downloadable forever once its design had been
 > published — unpublishing removed the design from the storefront while leaving the image retrievable by
-> anyone who had saved the link. Checking publication on every request makes withdrawal actually
-> withdraw. The 60-second signature is the only residual window, and it cannot be renewed once the design
-> is no longer published.
+> anyone who had saved the link. Checking publication on every request makes withdrawal actually withdraw.
+>
+> **The route returns bytes rather than redirecting to a signed URL** (research D11, amended 2026-07-27).
+> An issued signature is an address that outlives its own authorisation — it kept working for its full
+> lifetime even if the design was unpublished a second later — and the redirect ignored the `{width}` in
+> the path, so a 640px grid tile fetched the stored 2048px variant. Serving the bytes closes both: there
+> is no residual window at all, and the width is honoured.
+>
+> **Step 3 must stay after step 1.** Answering 304 to a stale `ETag` before the publication check would
+> confirm to anyone holding one that a withdrawn image still exists — exactly the inference FR-023
+> forbids.
 
 **Guarantees**: never serves an original (FR-010); never serves a draft's or deleted design's image
-(FR-009a, FR-023); returns no metadata that would distinguish "unpublished" from "does not exist".
+(FR-009a, FR-023); never hands a client a storage URL of any kind; returns no metadata that would
+distinguish "unpublished" from "does not exist".
+
+---
+
+## `GET /img/profile` — Designer profile photo
+
+**Returns**: the avatar referenced by `public_designer_profile.profile_photo_path`, as resized
+`image/webp` bytes. 404 when no photo is set.
+
+**No publication gate, deliberately.** The designer's `name`, `bio` and photo are public by definition
+(FR-028) — there is nothing to withhold. The path still comes from the view, so `email` remains
+unreachable. No `ETag`: unlike a design photo, the avatar is overwritten in place, so an identifier keyed
+on the owner would survive a replacement and serve the old image.
 
 ---
 

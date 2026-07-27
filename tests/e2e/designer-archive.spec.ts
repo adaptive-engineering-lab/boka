@@ -118,6 +118,90 @@ test('a rename does not change the design’s public address', async ({ page }) 
   }
 });
 
+test('draft thumbnails load in the dashboard', async ({ page }) => {
+  /*
+   * `/studio/img` is the owner-scoped counterpart to `/img`, and it exists precisely because
+   * `/img` is published-gated and the dashboard is mostly drafts.
+   *
+   * Nothing else in the suite would notice it breaking. Every other studio test asserts on text
+   * and form values, so a dashboard rendering a grid of broken tiles — the exact symptom of
+   * `/img` being reused by mistake, or of the delivery helper failing — would pass everything and
+   * look catastrophic to the designer.
+   */
+  await signIn(page);
+  const id = await createDesign(page, { title: `Thumbnail Subject ${Date.now()}` });
+
+  try {
+    await page.goto('/studio');
+
+    const tile = page.locator(`a[href="/studio/designs/${id}"] img`).first();
+    await expect(tile).toBeVisible();
+
+    const src = await tile.getAttribute('src');
+    expect(src, 'the dashboard must use the owner-scoped route, not the published-gated one').toMatch(
+      /^\/studio\/img\//,
+    );
+
+    // The browser's own request, with the session cookie — which is the part `next/image`'s
+    // optimiser would have stripped, and why these tiles are rendered unoptimised.
+    const response = await page.request.get(src!);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toContain('image/');
+
+    // Drafts are the point: this design has never been published.
+    expect((await page.request.get(`/img/${src!.split('/')[3]}/640`)).status()).toBe(404);
+  } finally {
+    await deleteDesign(page, id).catch(() => {});
+  }
+});
+
+test('the photo pickers open without waiting for JavaScript', async ({ page }) => {
+  /*
+   * Regression test for a bug a real user hit and the whole suite missed.
+   *
+   * "Choose from library" used to be a `<button onClick={() => inputRef.current.click()}>`.
+   * That is the common pattern for a styled file input and it has a hole: the uploader is a
+   * client component, so until React hydrates, the handler does not exist and the click is
+   * swallowed **with no feedback whatsoever**. On a phone loading a cold page that window is
+   * seconds long, and the designer's experience is simply that the button does nothing.
+   *
+   * Every existing test missed it by reaching past the control — `setInputFiles` on the
+   * input by test id, which never touches the button. The lesson is in the assertion below:
+   * drive the thing a person actually clicks.
+   *
+   * The controls are now `<label htmlFor>`, so the browser opens the picker natively. The
+   * two assertions pin exactly that: it works before hydration, and it works with
+   * JavaScript switched off entirely.
+   */
+  await signIn(page);
+
+  // `waitUntil: 'commit'` returns as soon as the response starts, so the click lands while
+  // the page is still HTML with no React attached.
+  await page.goto('/studio/designs/new', { waitUntil: 'commit' });
+
+  const library = page.getByText('Choose from library', { exact: true });
+  await library.waitFor({ state: 'attached', timeout: 30_000 });
+
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 10_000 }),
+    library.click({ force: true, noWaitAfter: true }),
+  ]);
+  expect(chooser.isMultiple(), 'the library picker must accept several photos (FR-006)').toBe(true);
+
+  // One properly named tab stop, not an anonymous input plus a separate button.
+  const named = await page.evaluate(() => {
+    const el = document.querySelector<HTMLInputElement>('[data-testid="photo-library-input"]');
+    return {
+      labels: el?.labels?.length ?? 0,
+      tabbable: (el?.tabIndex ?? -1) >= 0,
+      strayButtons: [...document.querySelectorAll('button')].filter((b) =>
+        /Choose from library|Take a photo/.test(b.textContent ?? ''),
+      ).length,
+    };
+  });
+  expect(named).toEqual({ labels: 1, tabbable: true, strayButtons: 0 });
+});
+
 test('a design cannot be created without a photo', async ({ page }) => {
   // FR-013a. The rule is enforced server-side in `createDesign`, but the form states it
   // before spending an upload — and a regression that silently created a photoless design

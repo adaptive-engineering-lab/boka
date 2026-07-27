@@ -171,7 +171,35 @@ their features count as complete.
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|--------------------------------------|
 | Scheduled `pg_cron` sweep (every 2 minutes) to retry pending inquiry notifications (Principle V discourages background job machinery) | FR-040a requires retry with backoff and FR-040b requires exhausted retries to be marked `undelivered` and surfaced. `after()` covers the common case, but a serverless freeze or a crash mid-retry would strand an inquiry in `pending` forever — invisible to the designer and contradicting SC-015. The sweep is the durability backstop. The 2-minute cadence is set by SC-006's 5-minute notification budget; the original 15-minute draft silently broke it. | **Synchronous send with no retry** cannot satisfy FR-040a. **Inline retry before responding** adds seconds to the visitor's only available action and still dies with the request. **A dedicated queue** (Inngest, QStash, Redis + worker) is real infrastructure for a site expecting a handful of inquiries a week — strictly worse under Principle V than a scheduled query against a table that already exists. The deviation is correctness-driven, not scale-driven, which is the distinction Principle V actually draws. |
-| Image requests traverse the application (`/img` route) rather than hitting object storage directly | FR-009a requires image access to be revoked when a design is unpublished or deleted. A public bucket cannot do this — the URL keeps working forever. Re-checking publication per request is the only arrangement where withdrawal actually withdraws. | **Public bucket** fails FR-023 outright. **Long-lived signed URLs generated at render** make the TTL the revocation window, so an hour-long TTL means an hour of access to withdrawn work. **Moving objects on unpublish** turns every publish toggle into a storage mutation that can partially fail, leaving rows and objects disagreeing. At 50 designs the extra hop is immaterial and the route is cacheable. |
+| Image requests traverse the application (`/img` route) rather than hitting object storage directly, **and are resized there** | FR-009a requires image access to be revoked when a design is unpublished or deleted. A public bucket cannot do this — the URL keeps working forever. Re-checking publication per request is the only arrangement where withdrawal actually withdraws. Resizing in the same request is what makes the width in the path mean anything, and it removes the last address a client could hold. | **Public bucket** fails FR-023 outright. **Long-lived signed URLs generated at render** make the TTL the revocation window, so an hour-long TTL means an hour of access to withdrawn work. **Short-lived signed URLs with a redirect** — the original form of this decision, now superseded; see below. **Moving objects on unpublish** turns every publish toggle into a storage mutation that can partially fail, leaving rows and objects disagreeing. **Pre-generated per-width variants** keep the redirect and the residual window, need a backfill for existing photos, and would silently break FR-019 unless variant filenames stay flat — `deleteDesignFiles` sweeps with a **non-recursive** `list(designId)`, so nested variant folders would never be found. At 50 designs the CPU is immaterial and repeat views are 304s. |
+
+### Amendment (2026-07-27) — `/img` serves bytes; it no longer redirects
+
+The row above originally read "redirect to a 60-second signed URL". That was implemented, verified, and
+shipped in the US2 increment, and it had two defects that only became visible once the storefront existed:
+
+1. **The width in the path was ignored.** One display variant is stored, longest edge 2048px, so a 640px
+   grid tile downloaded a 2048px file. Nothing failed — it was merely slow, which is why it survived a
+   whole phase — but at 50 designs averaging 3 photos it was a live risk to SC-004's 3-second LCP budget
+   on a 400 kbps connection.
+2. **A signed URL is an address that outlives its own authorisation.** Once issued it kept working for its
+   full lifetime even if the design was unpublished a second later. The original decision accepted this as
+   a 60-second residual window and called it the only residual exposure.
+
+`/img` now reads the object and returns the bytes, resized to the requested width
+(`lib/images/deliver.ts`). Both defects close at once, and the second one closing is what justifies the
+churn: **no signed URL is issued anywhere in the system**, so the residual window is gone rather than
+merely short. This amendment *tightens* Principle II — it is not a privacy-for-performance trade.
+
+The cost moves from a CDN hop to CPU per request. That is the same trade this row already made when it
+chose to route images through the application at all; an `ETag` of `{photoId}-{width}` makes repeat views
+304s, and a request at or above the stored width returns the stored bytes untouched rather than
+re-encoding. Measured in T079.
+
+**One ordering rule is load-bearing and must survive any future edit**: the publication check runs
+*before* conditional-request handling. Answering `304` to a stale `If-None-Match` ahead of the gate would
+confirm to anyone holding an old ETag that a withdrawn image still exists — the exact inference FR-023
+forbids. There is a test for it.
 
 ## Phase status
 

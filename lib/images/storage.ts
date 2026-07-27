@@ -5,23 +5,18 @@ import { createAdminClient } from '@/lib/supabase/admin';
 /**
  * Storage helpers (T028, FR-009a, FR-010, FR-019).
  *
- * Both buckets are private. Nothing here should ever produce a durable public URL —
- * if you find yourself reaching for `getPublicUrl`, the design has regressed to the
- * defect described in migration 0010.
+ * Both buckets are private, and **no URL into either one is ever handed to a client** —
+ * not a public URL, not a signed one. The application reads the bytes and serves them
+ * itself (`lib/images/deliver.ts`), so the only address a visitor ever holds is `/img/...`,
+ * which re-checks publication on every request.
+ *
+ * If you find yourself reaching for `getPublicUrl` or `createSignedUrl` here, stop: both
+ * hand out an address that keeps working for some window after the design behind it is
+ * withdrawn, which is the defect described in migration 0010 and in research D11.
  */
 
 export const ORIGINALS_BUCKET = 'originals';
 export const DISPLAY_BUCKET = 'display';
-
-/** Default 60s. Short on purpose: this is the residual window during which an image
- *  remains reachable after its design is unpublished. */
-function signedUrlTtlSeconds(): number {
-  const raw = process.env.IMAGE_SIGNED_URL_TTL_SECONDS;
-  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return 60;
-  // Cap it. A long TTL quietly converts the publication gate into a delay.
-  return Math.min(parsed, 300);
-}
 
 export function originalPath(designId: string, photoId: string, ext: string): string {
   return `${designId}/${photoId}.${ext.replace(/^\./, '')}`;
@@ -44,22 +39,24 @@ export function profilePhotoPath(ownerId: string): string {
 }
 
 /**
- * Signs a display-variant object for delivery.
+ * Reads a display-variant object's bytes.
  *
- * **Callers must have already confirmed the parent design is published.** This function
- * deliberately does not check — it cannot, since it only sees a path. The publication
- * gate lives in the /img route, which consults `public_photos` first (FR-009a). Calling
- * this without that check would reintroduce N1.
+ * **Callers must have already confirmed the caller is entitled to this image.** This
+ * function deliberately does not check — it cannot, since it only sees a path. The
+ * publication gate lives in the `/img` route, which consults `public_photos` first
+ * (FR-009a); the owner gate lives in `/studio/img`, which goes through RLS. Reading bytes
+ * without one of those checks in front of it would reintroduce finding N1.
+ *
+ * Returns null rather than throwing so callers can answer with their identical 404 — a
+ * missing object and an unpublished design must look the same from outside.
  */
-export async function signDisplayUrl(path: string): Promise<string | null> {
+export async function downloadDisplayObject(path: string): Promise<Buffer | null> {
   const admin = createAdminClient();
 
-  const { data, error } = await admin.storage
-    .from(DISPLAY_BUCKET)
-    .createSignedUrl(path, signedUrlTtlSeconds());
+  const { data, error } = await admin.storage.from(DISPLAY_BUCKET).download(path);
+  if (error || !data) return null;
 
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
+  return Buffer.from(await data.arrayBuffer());
 }
 
 /**

@@ -1,12 +1,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
-import {
-  getOwnProfile,
-  getOwnProfilePhotoUrl,
-  updateOwnProfile,
-  updateOwnProfilePhoto,
-} from '@/lib/data/designer-designs';
+import { getOwnProfile, updateOwnProfile, updateOwnProfilePhoto } from '@/lib/data/designer-designs';
 import { FILE_INPUT_ACCEPT, LIMITS_SENTENCE } from '@/lib/images/validate';
 
 /**
@@ -38,7 +33,16 @@ export default async function SettingsPage({
   const profile = await getOwnProfile();
   if (!profile) redirect('/auth/sign-in?next=/studio/settings');
 
-  const photoUrl = await getOwnProfilePhotoUrl(profile.profilePhotoPath);
+  /*
+   * The preview points at `/img/profile` — the same route visitors use, because the owner's
+   * avatar *is* the public avatar and there is nothing separate to show her.
+   *
+   * The `?v=` cache-buster is load-bearing. `/img/profile` is a fixed URL serving a file that
+   * is overwritten in place, with a 60-second cache; without this, uploading a new photo would
+   * appear to do nothing for a minute, which reads as a failed upload. This page is
+   * force-dynamic, so each render mints a fresh value.
+   */
+  const photoUrl = profile.profilePhotoPath ? `/img/profile?v=${Date.now()}` : null;
 
   async function saveProfile(formData: FormData) {
     'use server';
@@ -146,8 +150,8 @@ export default async function SettingsPage({
         </h2>
 
         {photoUrl ? (
-          // A signed URL for the owner's own avatar, valid for a minute. Not next/image:
-          // the signature expires, so there is nothing worth caching in the optimiser.
+          // Not next/image: the optimiser would cache the avatar keyed on a URL whose `?v=`
+          // changes every render, so it would re-optimise every time and cache nothing useful.
           <img
             src={photoUrl}
             alt="Your current profile photo"

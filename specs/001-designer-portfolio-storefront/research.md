@@ -120,10 +120,15 @@ defeats the enumeration FR-023 is actually written against.
 
 ## D5. Image pipeline
 
-**Decision**: Upload the original to Supabase Storage; generate compressed display variants server-side
-with `sharp`; serve through `next/image` with a blur placeholder derived from a tiny inline base64
-thumbnail stored on the photo row. **Both storage buckets are private**; images reach visitors through a
-publication-gated application route (see D11).
+**Decision**: Upload the original to Supabase Storage; generate a compressed display variant server-side
+with `sharp`; render with a blur placeholder derived from a tiny inline base64 thumbnail stored on the
+photo row. **Both storage buckets are private**; images reach visitors through a publication-gated
+application route which resizes to the requested width on the way out (see D11).
+
+> Images are rendered with `next/image` in `unoptimized` mode. Next's optimiser would cache derived bytes
+> keyed on the `/img` URL, with a lifetime it takes from upstream — a cache in front of the publication
+> gate, which is the public-bucket defect one layer up. Skipping it costs nothing now that `/img` sizes
+> the bytes itself, and the blur placeholder and reserved dimensions (SC-012) are unaffected.
 
 **Rationale**:
 
@@ -240,9 +245,10 @@ end-to-end test observes and what a unit test cannot.
 
 ## D11. Image delivery and access revocation
 
-**Decision**: Both storage buckets are private. Visitors fetch images through `/img/{photo_id}/{width}`,
-which looks the photo up in `public_photos`, returns an identical 404 when there is no row, and otherwise
-redirects to a 60-second signed URL.
+**Decision** *(amended 2026-07-27 — see "Amendment" below)*: Both storage buckets are private. Visitors
+fetch images through `/img/{photo_id}/{width}`, which looks the photo up in `public_photos`, returns an
+identical 404 when there is no row, and otherwise **reads the object and returns the bytes, resized to the
+requested width**. No signed URL is issued, and no storage address ever reaches a client.
 
 **Rationale**: This closes the most serious defect found in analysis. A public `display` bucket meant RLS
 gated the `photo` *table* while the storage object stayed world-readable — so once a design had been
@@ -251,8 +257,8 @@ was moved to draft or deleted. That directly contradicts Principle II ("drafts M
 guessing a URL or ID") and FR-023, and it is invisible in testing unless you specifically re-request an
 old image URL after unpublishing.
 
-Re-checking publication per request makes revocation immediate. The 60-second signature is the only
-residual window and cannot be renewed once the design is unpublished.
+Re-checking publication per request makes revocation immediate, and serving the bytes ourselves makes it
+**total**: there is no issued address left over to keep working afterwards.
 
 **Alternatives considered**:
 
@@ -260,10 +266,40 @@ residual window and cannot be renewed once the design is unpublished.
 |---|---|
 | Public bucket, accept the exposure | The original design. Fails FR-023 outright — an unpublished garment stays downloadable indefinitely. |
 | Long-lived signed URLs generated at page render | Simpler and CDN-friendly, but the TTL becomes the revocation window; a 1-hour TTL means an hour of continued access to work the designer has withdrawn. |
+| **Short-lived (60s) signed URL plus a 302 redirect** | **Superseded — this was the first form of this decision and shipped in the US2 increment.** See the amendment below. |
 | Move objects to a private prefix on unpublish | Immediate revocation, but every publish/unpublish becomes a storage mutation that can partially fail, leaving rows and objects disagreeing about where a file lives. |
+| Pre-generate per-width variants at upload, keep redirecting | Honours the width without per-request CPU and stays CDN-friendly, but keeps the signed-URL window, needs a backfill for existing photos, and multiplies upload encode time and storage. It also carries a trap: `deleteDesignFiles` sweeps a design's files with a **non-recursive** `list(designId)`, so variants written into nested folders would never be found and FR-019 would regress silently — exactly the class of defect this project keeps discovering. Retained as the follow-up if T079 shows the CPU is a problem, with flat filenames. |
 
-**Cost**: image requests traverse the application rather than hitting the CDN directly. At 50 designs
-this is immaterial (Principle V), and the route is cacheable with a short TTL.
+**Cost**: image requests traverse the application rather than hitting the CDN directly, and now spend CPU
+resizing rather than just signing. At 50 designs this is immaterial (Principle V). An `ETag` of
+`{photo_id}-{width}` makes repeat views 304s, and a request at or above the stored width returns the
+stored bytes untouched rather than re-encoding.
+
+### Amendment (2026-07-27): serve bytes, do not redirect
+
+The original decision — redirect to a 60-second signed URL — was implemented and verified, and the US2
+increment exposed two defects in it:
+
+1. **The width in the path was ignored.** Only one display variant is stored (longest edge 2048px), so
+   every request redirected to it regardless of the width asked for; a 640px grid tile downloaded a 2048px
+   file. Nothing errored, which is why it survived a full phase, but at 50 designs averaging 3 photos it
+   put SC-004's 3-second LCP budget at risk on a 400 kbps connection.
+2. **A signed URL is an address that outlives its own authorisation.** This decision originally described
+   the 60-second signature as "the only residual window" and treated it as acceptable. It is avoidable.
+
+Reading the object and returning resized bytes closes both. The second is the one that makes this an
+amendment rather than an optimisation: **the residual window is now zero, not short**, which strengthens
+the FR-009a guarantee this decision exists to provide.
+
+**Ordering rule, load-bearing:** the publication check runs *before* conditional-request handling. A `304`
+answered to a stale `If-None-Match` ahead of the gate would confirm to anyone holding an old ETag that a
+withdrawn image still exists — precisely the inference FR-023 forbids. `tests/e2e/view-only.spec.ts`
+asserts that an unpublished design answers `404` and not `304` to a conditional request.
+
+> **Note on `supabase/migrations/0010_storage.sql`.** Its header comment still describes the signed-URL
+> flow. That file is an applied migration and applied migrations are not edited, even for comments, so the
+> comment is knowingly stale and this section is the correction. Bucket privacy — the part the migration
+> actually enforces, and its assertion — is unchanged and still correct.
 
 ## D12. Inquiry write path
 

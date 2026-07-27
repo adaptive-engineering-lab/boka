@@ -92,7 +92,7 @@ test('a draft is unreachable and indistinguishable from a nonexistent design', a
     expect(imageMatch, 'the detail page should serve images through /img').not.toBeNull();
     const imageUrl = imageMatch![0];
 
-    // It works now — 302 to a signed URL, followed to the bytes.
+    // It works now — the route re-checks publication, then serves the resized bytes itself.
     const liveImage = await request.get(imageUrl);
     expect(liveImage.status()).toBe(200);
     expect(liveImage.headers()['content-type']).toContain('image/');

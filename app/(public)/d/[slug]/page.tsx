@@ -2,6 +2,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { OwnerBar } from '@/components/public/OwnerBar';
+import { isOwnerViewing } from '@/lib/auth/owner-view';
 import { getPublishedDesignBySlug, incrementDesignView } from '@/lib/data/public-designs';
 
 /**
@@ -56,10 +58,23 @@ export default async function DesignDetailPage({ params }: { params: Promise<{ s
   // get dropped when the invocation freezes.
   await incrementDesignView(slug);
 
+  /*
+   * FR-002a, and the ordering is deliberate: this runs only AFTER the design has been found.
+   *
+   * A 404 must be byte-identical for a draft, a deleted design and a slug that never existed
+   * (FR-023, T060). Resolving the viewer before the gate would make the not-found response
+   * depend on who asked — the designer's 404 would differ from a visitor's, and the sameness
+   * T060 asserts would hold only for anonymous requests. Nothing about the viewer may reach a
+   * response that is refusing to say whether something exists.
+   */
+  const ownerViewing = await isOwnerViewing();
+
   const meta = [design.categoryName, design.collection].filter(Boolean).join(' · ');
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+      {ownerViewing ? <OwnerBar /> : null}
+
       <nav className="mb-6">
         <Link href="/" className="text-sm text-gray-600 hover:underline">
           ← All designs
@@ -87,7 +102,9 @@ export default async function DesignDetailPage({ params }: { params: Promise<{ s
             placeholder="blur"
             blurDataURL={photo.blurDataURL}
             // Unoptimised for the same reason as the grid: an optimiser cache in front of
-            // `/img` can outlive the publication check. See components/public/PublicGrid.tsx.
+            // `/img` can outlive the publication check, and costs nothing to skip now that
+            // the route resizes to the requested width itself. See
+            // components/public/PublicGrid.tsx for the full argument.
             unoptimized
             className="h-auto w-full rounded bg-gray-100"
           />

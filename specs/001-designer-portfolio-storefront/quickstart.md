@@ -39,11 +39,26 @@ The `/img` gate was tested over HTTP with a real file in the bucket:
 
 | Request | Result |
 |---|---|
-| Published photo | `302` → follows to `200 image/webp` |
+| Published photo | `200 image/webp`, bytes resized to the requested width |
 | **Same URL after unpublishing** | **`404`** ← this is the N1 fix |
-| Same URL after republishing | `302` again |
+| Same URL after republishing | `200` again |
 | Draft photo, nonexistent id, bad width, malformed id | `404`, and the draft and nonexistent responses are **byte-identical** |
 | Storage object fetched directly, unsigned | `400` (bucket is private) |
+
+> **Amended 2026-07-27** — `/img` used to answer `302` with a 60-second signed URL. It now returns the
+> bytes itself, resized (research D11). Re-verified against a production build:
+>
+> | Requested width | Status | Bytes | Actual width | `Location` |
+> |---|---|---|---|---|
+> | 320 | 200 | 320 | 320px | none |
+> | 640 | 200 | 1,058 | 640px | none |
+> | 1080 | 200 | 2,862 | 1080px | none |
+> | 1920 | 200 | 5,666 | 1536px | none |
+>
+> The 1920 row is the stored variant returned untouched — the fast path skips re-encoding and never
+> upscales, so the byte count matches the stored object exactly. Conditional requests were checked too:
+> a matching `If-None-Match` gives `304`, and **the same header after unpublishing gives `404`, not
+> `304`** — the publication gate runs ahead of conditional handling.
 
 Also confirmed: `updated_at` advances on update while `created_at` is preserved; a slug survives a
 rename; `increment_design_view` increments a published design and silently ignores a draft slug

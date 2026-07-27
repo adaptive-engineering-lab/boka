@@ -94,9 +94,28 @@ export default async function StudioDashboard({
                   <div
                     className={
                       design.published
-                        ? 'rounded ring-1 ring-gray-200'
-                        : // Dashed, so the difference survives greyscale and low vision.
-                          'rounded ring-1 ring-dashed ring-amber-400'
+                        ? 'rounded border-2 border-gray-200'
+                        : /*
+                           * Dashed, not merely amber: line *style* is the channel that survives
+                           * greyscale, monochrome displays and colour blindness, where hue alone
+                           * does not. Colour is the third signal, after the text badge below and
+                           * this border style.
+                           *
+                           * `border`, not `ring` — Tailwind has no `ring-dashed`. Ring utilities
+                           * take a width, colour, offset and inset, but no line style. This was
+                           * written as `ring-dashed`, which emitted no CSS at all, so the draft
+                           * border rendered solid and the promise in this comment was not kept.
+                           *
+                           * Both branches use `border-2` so the two states occupy identical space.
+                           * A ring draws outside the box and a border inside it, so giving only
+                           * one state a border would make draft tiles 4px smaller than published
+                           * ones and shift the grid every time a design is published.
+                           *
+                           * amber-600 rather than amber-400: WCAG 1.4.11 asks 3:1 for a non-text
+                           * indicator that carries meaning. amber-400 (#fbbf24) is about 1.7:1 on
+                           * white; amber-600 (#d97706) is about 3.2:1.
+                           */
+                          'rounded border-2 border-dashed border-amber-600'
                     }
                   >
                     <DesignGridTile

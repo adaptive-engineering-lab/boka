@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { SessionGuard } from '@/components/studio/SessionGuard';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * Shared chrome for the designer surface.
@@ -23,6 +25,30 @@ const LINKS = [
   { href: '/studio/settings', label: 'Settings' },
 ];
 
+/**
+ * T083 — end the session (FR-001a).
+ *
+ * `signOut()` with its default global scope **revokes the refresh token at the auth server**,
+ * which is the part that matters. Clearing cookies alone would leave a live refresh token in
+ * the wild; anyone who had captured it could mint new access tokens indefinitely, and the
+ * designer would have every reason to believe she had signed out. FR-001a asks for the
+ * session to be invalidated server-side, not for the interface to be tidied.
+ *
+ * Defined in the layout so the control exists on every studio page — the requirement is
+ * "reachable from every authenticated page", and a sign-out you have to navigate to in order
+ * to reach is not much use on a borrowed machine.
+ */
+async function signOut() {
+  'use server';
+
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+
+  // Back to the storefront rather than to sign-in. Landing on a login form implies she is
+  // meant to sign back in; landing on the public site is simply where a signed-out person is.
+  redirect('/');
+}
+
 export default function StudioLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -43,6 +69,15 @@ export default function StudioLayout({ children }: { children: React.ReactNode }
               <Link href="/" className="hover:underline">
                 View storefront
               </Link>
+            </li>
+            <li>
+              {/* A form, not a link: signing out changes server state, so it must not be
+                  something a prefetcher or a crawler can trigger by following a URL. */}
+              <form action={signOut}>
+                <button type="submit" className="hover:underline">
+                  Sign out
+                </button>
+              </form>
             </li>
           </ul>
         </nav>

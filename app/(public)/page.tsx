@@ -1,7 +1,9 @@
 import { DesignerHeader } from '@/components/public/DesignerHeader';
 import { ComingSoon, NoMatches } from '@/components/public/EmptyStorefront';
+import { OwnerBar } from '@/components/public/OwnerBar';
 import { PublicFilterBar } from '@/components/public/PublicFilterBar';
 import { PublicGrid } from '@/components/public/PublicGrid';
+import { isOwnerViewing } from '@/lib/auth/owner-view';
 import {
   getPublicDesignerProfile,
   getPublicFilterOptions,
@@ -56,10 +58,14 @@ export default async function StorefrontPage({
 }) {
   const { category, collection, sort } = await searchParams;
 
-  const [profile, designs, filterOptions] = await Promise.all([
+  const [profile, designs, filterOptions, ownerViewing] = await Promise.all([
     getPublicDesignerProfile(),
     listPublishedDesigns({ category, collection, sort: parseSort(sort) }),
     getPublicFilterOptions(),
+    // FR-002a. Returns false without any network call for a request carrying no auth cookie,
+    // which is every visitor — see lib/auth/owner-view.ts. It decides one navigation
+    // affordance and never what data is read.
+    isOwnerViewing(),
   ]);
 
   const filtered = Boolean(category || collection);
@@ -70,6 +76,8 @@ export default async function StorefrontPage({
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+      {ownerViewing ? <OwnerBar /> : null}
+
       {profile ? (
         <DesignerHeader
           name={profile.name}

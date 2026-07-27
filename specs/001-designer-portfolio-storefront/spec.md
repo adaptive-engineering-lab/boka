@@ -48,6 +48,27 @@ Five gaps surfaced by `/speckit-analyze` that the spec genuinely did not settle.
 - Q: Which dimensions are filters and which are sorts? → A: **Filter** by category and collection;
   **sort** by date and title. "Sort by category" had no defined meaning (FR-018, FR-030).
 
+### Session 2026-07-27 (session lifecycle and cross-surface navigation)
+
+Two gaps found by using the built application rather than by analysis. Both concern the designer's
+movement in and out of the authenticated surface, which the spec covered on the way in (FR-001) and not
+at all on the way out or back.
+
+- Q: How does the designer end her session? → A: **She cannot** — there is no sign-out control anywhere
+  in v1, and the spec never asked for one. Sessions refresh indefinitely, so signing in on a borrowed or
+  shared device leaves the archive open to whoever opens the browser next. Added as **FR-001a**.
+- Q: How does the signed-in designer get from the storefront back to the studio? → A: **By retyping the
+  URL.** The studio links out to the storefront ("View storefront") and nothing points back. Added as
+  **FR-002a**, deliberately narrow.
+- Q: Does an owner-only affordance on a public page violate Principle I? → A: **No, provided it is
+  additive and invisible to visitors.** Principle I forbids requiring a visitor to identify themselves
+  before browsing; it does not forbid showing something extra to someone already authenticated. The line
+  FR-002a draws is that an unauthenticated response must be unchanged — so the guarantee stays testable
+  by simply making the request without a session, which is exactly what the existing gates already do.
+- Q: Should visitors get a breadcrumb trail through the storefront? → A: **Not now.** Considered and
+  declined to keep this change to the one problem observed. The detail page's "All designs" link is the
+  only wayfinding v1 offers, and no one has reported it as insufficient.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Designer builds her design archive (Priority: P1)
@@ -221,8 +242,33 @@ with a malformed email and confirm the form rejects it before submission.
 
 - **FR-001**: System MUST require the designer to authenticate before reaching any upload, edit,
   organize, or publish control.
+- **FR-001a**: System MUST provide the designer with a way to end her session, reachable from every
+  authenticated page, and MUST return her to a public page once it has ended. Ending the session MUST
+  invalidate it server-side, not merely clear the interface.
+
+  *Rationale*: FR-001 governs getting in and said nothing about getting out, so v1 shipped with no way
+  out at all. Sessions refresh indefinitely, which makes a borrowed laptop or a shared studio machine a
+  standing exposure of the entire archive — including every private note — to whoever opens the browser
+  next. This is the one authentication gap a designer cannot work around herself.
+
 - **FR-002**: System MUST allow visitors to reach every public surface with a URL alone — no account,
   no session, no interstitial.
+- **FR-002a**: System MUST give the signed-in designer a way back to her authenticated surface from
+  public pages. That affordance is bound by four constraints, and all four are testable:
+
+  1. It MUST NOT appear for an unauthenticated request.
+  2. It MUST NOT prompt for authentication, offer a sign-in control, or otherwise disclose to a visitor
+     that an authenticated surface exists.
+  3. It MUST NOT change the response an unauthenticated request receives.
+  4. It MUST NOT change which data the page reads. Public pages continue to read published, public
+     fields only, and MUST still render completely for a request carrying no session.
+
+  *Rationale*: the studio links out to the storefront and nothing links back, so the designer's only
+  route home is retyping a URL. Principle I forbids making a **visitor** identify themselves before
+  browsing; it does not forbid showing something extra to someone who already has. Constraint 3 is what
+  keeps that distinction honest and enforceable — the existing draft-invisibility and view-only gates
+  already make their assertions with no session, so they measure exactly the surface this must not
+  disturb.
 - **FR-003**: System MUST verify record ownership on the server for every create, edit, delete, or
   publish action; hiding a control in the interface MUST NOT be the only barrier.
 - **FR-004**: System MUST NOT create an account or session for a visitor as a result of any action

@@ -68,7 +68,14 @@ export async function createDesign(
     });
   }
 
-  await page.getByTestId('photo-library-input').setInputFiles(files);
+  // Resolved through the visible label, not `getByTestId`, and that is deliberate.
+  //
+  // Targeting the input directly is what let a real bug ship: the control a designer
+  // actually clicks was a button calling `inputRef.current.click()`, which did nothing
+  // before hydration, and no test noticed because every test reached past it to the input.
+  // Going through the label means the association a user depends on is exercised on every
+  // single create.
+  await page.getByLabel('Choose from library').setInputFiles(files);
   await page.getByRole('button', { name: 'Save design' }).click();
 
   // Image processing is real work; the default assertion timeout is not enough on a cold

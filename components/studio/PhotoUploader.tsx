@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 import { AltTextField } from '@/components/studio/AltTextField';
 import { FILE_INPUT_ACCEPT, LIMITS_SENTENCE, validatePhotoFile } from '@/lib/images/validate';
@@ -11,11 +11,26 @@ import { FILE_INPUT_ACCEPT, LIMITS_SENTENCE, validatePhotoFile } from '@/lib/ima
  * Three requirements shape this, and all three come from the same fact: the designer is
  * doing this one-handed, on a phone, next to the garment.
  *
- * **Camera and library are separate buttons** (FR-005). One `<input type="file">` with
+ * **Camera and library are separate controls** (FR-005). One `<input type="file">` with
  * `capture` opens the camera; the same input without it opens the picker. There is no
  * markup for "offer both in one control" that works reliably across iOS and Android, so
- * two labelled buttons is not a compromise — it is the only arrangement where she gets
+ * two labelled controls is not a compromise — it is the only arrangement where she gets
  * what the label says.
+ *
+ * **They are `<label>`s, not buttons, and that is load-bearing.** The first version used a
+ * styled `<button onClick={() => inputRef.current.click()}>`, which is the common pattern
+ * and which silently failed for a real user: this is a client component, so before
+ * hydration the handler does not exist yet and the click is swallowed with no feedback at
+ * all. On a phone loading a cold page that window is seconds long, and the symptom is
+ * "the button does nothing" — reproduced by clicking as soon as the button appears in the
+ * DOM.
+ *
+ * A `<label htmlFor>` opens the picker through the browser's own behaviour. It needs no
+ * JavaScript, so it works the instant the HTML lands, and it cannot be broken by a
+ * hydration error. It also fixes an accessibility defect the button version had: the
+ * visually hidden input stayed in the tab order with **no accessible name**, so a keyboard
+ * user hit an anonymous file input and then the button — two stops per control, one of
+ * them unannounced. Associating them makes it one properly named stop.
  *
  * **Rejection is per file** (FR-012). A 40 MB video dropped into a batch of six photos
  * removes itself and says why; the other five stay selected. The message names the
@@ -60,8 +75,6 @@ export function PhotoUploader({
   progress?: number | null;
 }) {
   const [rejections, setRejections] = useState<string[]>([]);
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const libraryRef = useRef<HTMLInputElement>(null);
   const fieldId = useId();
 
   // Object URLs are a real leak on a page where a dozen 20 MB photos get added and
@@ -107,48 +120,60 @@ export function PhotoUploader({
       <legend className="text-sm font-medium">Photos</legend>
       <p className="text-xs text-gray-500">{LIMITS_SENTENCE}</p>
 
-      {/* Hidden inputs, driven by the two buttons below. A visible file input cannot be
-          labelled "Take a photo" and "Choose from library" at the same time. */}
-      <input
-        ref={cameraRef}
-        data-testid="photo-camera-input"
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="sr-only"
-        onChange={(event) => {
-          addFiles(event.target.files);
-          event.target.value = '';
-        }}
-      />
-      <input
-        ref={libraryRef}
-        data-testid="photo-library-input"
-        type="file"
-        accept={FILE_INPUT_ACCEPT}
-        multiple
-        className="sr-only"
-        onChange={(event) => {
-          addFiles(event.target.files);
-          event.target.value = '';
-        }}
-      />
+      {/*
+        Each control is a visually hidden input plus a label styled as a button.
 
+        The input is `sr-only`, not `hidden` or `display:none` — it must stay in the tab
+        order and remain focusable, which is what lets a keyboard user reach it and press
+        Enter or Space. The `peer` class lets the label render that focus ring, since the
+        focus lands on the input the label is standing in for.
+
+        Order matters twice: the input must precede the label for Tailwind's `peer-*`
+        variants to apply, and the label must point at the input by id rather than wrapping
+        it, so the hidden input is not nested inside its own click target.
+      */}
       <div className="flex flex-col gap-2 sm:flex-row">
-        <button
-          type="button"
-          onClick={() => cameraRef.current?.click()}
-          className="flex-1 rounded border border-gray-300 px-4 py-3 text-sm font-medium hover:bg-gray-50"
-        >
-          Take a photo
-        </button>
-        <button
-          type="button"
-          onClick={() => libraryRef.current?.click()}
-          className="flex-1 rounded border border-gray-300 px-4 py-3 text-sm font-medium hover:bg-gray-50"
-        >
-          Choose from library
-        </button>
+        <div className="flex-1">
+          <input
+            id={`${fieldId}-camera`}
+            data-testid="photo-camera-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="peer sr-only"
+            onChange={(event) => {
+              addFiles(event.target.files);
+              event.target.value = '';
+            }}
+          />
+          <label
+            htmlFor={`${fieldId}-camera`}
+            className="block cursor-pointer rounded border border-gray-300 px-4 py-3 text-center text-sm font-medium hover:bg-gray-50 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-gray-900 peer-disabled:cursor-not-allowed peer-disabled:opacity-60 peer-disabled:hover:bg-transparent"
+          >
+            Take a photo
+          </label>
+        </div>
+
+        <div className="flex-1">
+          <input
+            id={`${fieldId}-library`}
+            data-testid="photo-library-input"
+            type="file"
+            accept={FILE_INPUT_ACCEPT}
+            multiple
+            className="peer sr-only"
+            onChange={(event) => {
+              addFiles(event.target.files);
+              event.target.value = '';
+            }}
+          />
+          <label
+            htmlFor={`${fieldId}-library`}
+            className="block cursor-pointer rounded border border-gray-300 px-4 py-3 text-center text-sm font-medium hover:bg-gray-50 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-gray-900 peer-disabled:cursor-not-allowed peer-disabled:opacity-60 peer-disabled:hover:bg-transparent"
+          >
+            Choose from library
+          </label>
+        </div>
       </div>
 
       {rejections.length > 0 ? (

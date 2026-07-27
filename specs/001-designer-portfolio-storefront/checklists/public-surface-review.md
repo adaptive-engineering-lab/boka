@@ -28,6 +28,50 @@ by a design that had already passed a Constitution Check.
 > Verified against a **production build**, not `next dev` — see the note under "Tests" below.
 > Marks below refer to that run.
 
+> ### Run 2 — the `/img` amendment (2026-07-27)
+>
+> `/img`, `/studio/img` and `/img/profile` stopped redirecting to signed URLs and now return the
+> object's bytes, resized to the requested width. This touches a public route, the image gate and
+> the storage access path, so the whole checklist was re-run rather than only the image section.
+>
+> **Everything ticked in Run 1 still holds**; Run 2 annotations appear inline where an item's
+> *reason* changed. Two items in "Storage and images" were rewritten because they no longer
+> described the system, and one new item was added for the conditional-request ordering.
+>
+> The change is a Principle II improvement, not a performance trade: the previous design accepted a
+> 60-second window during which an already-issued signature kept working after its design was
+> unpublished. That window is now zero, because nothing is issued.
+>
+> 22/22 end-to-end specs pass on both engines against a fresh production build.
+>
+> **Process defect found and fixed during this run.** `playwright.config.ts` had
+> `reuseExistingServer: !process.env.CI`, so a leftover `next start` was silently reused and the
+> suite ran against stale code — the amended route was already written and the tests still observed
+> the old 302. The dangerous version of that is a mandatory gate passing green against a build that
+> no longer exists. The production path now refuses to reuse a running server.
+
+> ### Run 3 — session lifecycle and the owner bar (2026-07-27)
+>
+> FR-001a (ending a session) and FR-002a (the designer's way back from the storefront). FR-002a is a
+> deliberate, narrow exception to "the public surface shows nothing about authentication" — it puts a
+> session read on public pages for the first time — so the whole checklist was re-run.
+>
+> **Everything ticked in Runs 1 and 2 still holds.** One item gained a Run 3 annotation because its
+> *reason* changed, and three new items were added, inline below.
+>
+> The exception stays narrow because of one testable property: an unauthenticated response is
+> unchanged. `session-lifecycle.spec.ts` proves it with a real before/after inside a single run —
+> capture anonymous, sign in, confirm it differs for her, sign out, require byte-identical.
+>
+> 32/32 end-to-end specs pass on both engines.
+>
+> **A vacuous assertion was caught and fixed during this run**, worth recording because it is the
+> failure this project keeps guarding against elsewhere. The sign-out test first read the session from
+> `localStorage` — but `@supabase/ssr` stores it in a **cookie**, so the lookup returned null, the
+> revocation check sat behind an `if (session)` that never ran, and the test passed having verified
+> nothing. It now reads the cookie, asserts the token was extracted before using it, and was checked
+> adversarially: the token refreshes with **200 before** sign-out and **400 after**.
+
 ### Principle II — nothing private becomes reachable
 
 - [X] Every new or changed public read goes through a `public_*` view with an **explicit column list**, not a base table
@@ -48,12 +92,16 @@ by a design that had already passed a Constitution Check.
 
 - [X] Both buckets remain **private**; neither has been flipped to public
       — migration `0010`'s assertion still runs, and `view-only.spec.ts` confirms unsigned access to both buckets is refused.
+      *Run 2:* unchanged, and now stronger — the application no longer produces any URL into either bucket at all.
 - [X] Every image is served through `/img/{photo_id}/{width}`, which re-checks publication per request
       — `view-only.spec.ts` extracts every `<img src>` on the detail page and requires each to start with `/img/`.
       **One deliberate exception, recorded rather than ticked blindly:** `/img/profile` has **no publication gate**. The designer's name, bio and photo are public by definition (FR-028), so there is nothing to withhold. It still reads its path from `public_designer_profile` (which omits `email`) and still issues only a short-lived signed URL into the private `display` bucket. Covered by its own test.
       A second exception exists but is **not a public surface**: `/studio/img/{photo}/{width}` serves the owner's drafts to the dashboard, session-required and RLS-scoped. `/img` was deliberately *not* relaxed for signed-in requests — a conditional inside the publication gate is the one change that could make T060 pass while visitors leaked.
-- [X] Signed URL lifetime is still short (60s) and cannot be renewed for an unpublished design
-      — `IMAGE_SIGNED_URL_TTL_SECONDS` defaults to 60 and is capped at 300 in code; renewal requires a `public_photos` row, which an unpublished design does not have.
+- [X] ~~Signed URL lifetime is still short (60s) and cannot be renewed for an unpublished design~~
+      **No signed URL is issued anywhere.** *(Item rewritten in Run 2 — it no longer described the system.)*
+      `/img`, `/studio/img` and `/img/profile` read the object and return the bytes, so there is no address for a client to retain and **no residual window at all**, where the previous design accepted 60 seconds. `signDisplayUrl` and `IMAGE_SIGNED_URL_TTL_SECONDS` are gone; `grep` for either must return nothing outside the specs. Verified: no response from any image route carries a `Location` header.
+- [X] Conditional requests cannot short-circuit the publication gate *(new in Run 2)*
+      — `/img` answers `If-None-Match` with 304 **only after** the `public_photos` lookup succeeds. A 304 returned ahead of the gate would confirm to anyone holding a stale ETag that a withdrawn image still exists. `view-only.spec.ts` asserts that the same conditional request returns **404, not 304**, once the design is unpublished.
 - [X] Deleting a design still deletes both storage prefixes, not just the rows
       — `storage-cleanup.test.ts` asserts both prefixes empty after delete; `draft-invisibility.spec.ts` independently confirms the image URL 404s after deletion.
 
@@ -63,6 +111,13 @@ by a design that had already passed a Constitution Check.
       — `view-only.spec.ts` scans for twelve commerce/interaction phrases, requires every public `<form>` to be `method="get"`, and asserts no `/studio` link appears.
 - [X] No public route requests authentication, and none creates a session or cookie
       — asserted on `/` and on a 404 slug: no `/auth/sign-in` reference, no "sign in to" copy, no `sb-` cookie in any `Set-Cookie`.
+      *Run 3:* public pages now **read** a session (FR-002a) to decide whether to render the owner's way back to the studio. Reading is not requesting: no visitor is prompted, no cookie is set, and a request without one is answered exactly as before. `lib/auth/owner-view.ts` checks for a Supabase cookie locally first and returns false without constructing a client or making any network call, so the anonymous path is unchanged by construction rather than by care. `session-lifecycle.spec.ts` captures the anonymous response, signs in, confirms it changes for her, signs out, and requires the anonymous response to return **byte-identical**.
+- [X] An owner-only affordance on a public page discloses nothing to a visitor *(new in Run 3, FR-002a)*
+      — the bar carries no sign-in control and no hint that an authenticated surface exists; the anonymous body contains none of `Back to the studio`, `viewing your storefront`, `/studio` or `/auth/sign-in`. It changes navigation only, never which data the page reads — public pages still read published, public fields for everyone, including for her.
+- [X] The owner check cannot reach a not-found response *(new in Run 3)*
+      — on the detail page `isOwnerViewing()` runs **after** the design has been found. Resolving the viewer before the gate would make the designer's 404 differ from a visitor's, and FR-023's "draft, deleted and nonexistent are indistinguishable" would silently narrow to "…for anonymous requests only". `session-lifecycle.spec.ts` requests a draft slug with and without a session and requires both 404s to match.
+- [X] The designer can end her session, and ending it revokes it server-side *(new in Run 3, FR-001a)*
+      — `signOut()` runs at its default global scope, so the refresh token is revoked at the auth server rather than merely dropped from the browser. Verified adversarially: the captured refresh token returns **200 before** sign-out and **400 after**, so the assertion can genuinely fail.
 - [ ] Inquiry submission remains the only visitor action, and the **write is still server-mediated**
       — **N/A this increment.** There is no inquiry surface until T066–T069 (US3). Left unticked deliberately: ticking it now would record a guarantee about code that does not exist.
 - [ ] Honeypot and rate-limit checks cannot be bypassed by calling the data layer directly

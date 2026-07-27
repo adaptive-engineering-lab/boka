@@ -78,7 +78,7 @@ not in the feature code. T017–T022 deserve review before anything is built on 
 - [X] T019 Migration for the `increment_design_view(slug)` SECURITY DEFINER function, published-rows-only (FR-034), in `supabase/migrations/0009_view_count.sql`
 - [X] T020 [P] Create storage buckets — `originals` **private** and `display` **private** (FR-009a) — in `supabase/migrations/0010_storage.sql`
 - [X] T021 [P] Seed the owner account and starter categories (Dress, Outerwear, Accessory) in `supabase/seed.sql`
-- [X] T022 Build the publication-gated image route: look up `public_photos`, return an identical 404 when absent, else redirect to a 60-second signed URL (FR-009a) in `app/img/[photoId]/[width]/route.ts`
+- [X] T022 Build the publication-gated image route: look up `public_photos`, return an identical 404 when absent, else ~~redirect to a 60-second signed URL~~ **return the display object's bytes resized to the requested width** (FR-009a) in `app/img/[photoId]/[width]/route.ts` — *the redirect form shipped and was superseded on 2026-07-27; see the amendment under Phase 4*
 - [X] T023 Build the sign-in page in `app/auth/sign-in/page.tsx` (FR-001)
 - [X] T024 Add session middleware protecting all `/studio` routes in `middleware.ts` (FR-001)
 - [X] T025 [P] Build the public data access module, reading the four `public_*` views **only** and never a base table, in `lib/data/public-designs.ts`
@@ -227,13 +227,37 @@ direct URL, and their image URLs 404; no private note text appears anywhere in t
 > the browser re-requests `/img` every load, so revocation is immediate. Blur placeholders and
 > reserved dimensions are unaffected, so SC-012 still holds.
 >
-> **Known cost, not yet paid off:** `/img` redirects to the single stored display variant
-> (longest edge 2048px) regardless of the width in its path, so the width parameter is currently
-> decorative and a grid tile downloads more bytes than it needs. This is a live risk to SC-004's
-> 3-second LCP budget, measured in **T079**. The remedy is per-width variants at upload or
-> resizing inside `/img` — **not** reintroducing a cache in front of the publication gate.
-> Revisiting it would amend the `/img` decision recorded in [plan.md](./plan.md) Complexity
-> Tracking, so it is flagged rather than done unilaterally.
+> ### ✓ `/img` amendment — resolved 2026-07-27
+>
+> The US2 increment closed with a flagged debt: `/img` redirected to the single stored display
+> variant (longest edge 2048px) regardless of the width in its path, so the width parameter was
+> decorative and a 640px grid tile downloaded a 2048px file — a live risk to SC-004's 3-second
+> LCP budget. It was flagged rather than fixed because the remedy amends a decision recorded in
+> [plan.md](./plan.md) Complexity Tracking and [research.md](./research.md) D11.
+>
+> **Amended and implemented.** `/img` now reads the object and returns the bytes, resized to the
+> requested width (`lib/images/deliver.ts`). The same change applies to `/studio/img` and
+> `/img/profile`, so **no signed URL is issued anywhere in the system** — which is why this is a
+> Principle II improvement rather than a performance trade. The previous design accepted a
+> 60-second residual window in which an already-issued signature kept working after its design was
+> unpublished; that window is now zero.
+>
+> Verified against a production build: 320 → 320px, 640 → 640px, 1080 → 1080px, and 1920 → the
+> stored 1536px bytes returned untouched (the fast path skips re-encoding and never upscales). No
+> `Location` header on any response. A matching `If-None-Match` gives 304 — and **the same header
+> after unpublishing gives 404, not 304**, because the publication check runs ahead of conditional
+> handling. `tests/e2e/view-only.spec.ts` asserts all of it; 22/22 specs pass on both engines.
+>
+> **A second defect surfaced while verifying this one.** `playwright.config.ts` had
+> `reuseExistingServer: !process.env.CI`, so a leftover `next start` from an earlier session was
+> silently reused and the whole suite ran against **stale code** — the amended route was already
+> written and the tests still saw the old 302. The failure mode that matters is the reverse: T060
+> or T061 passing green against a build that no longer exists. The production path now refuses to
+> reuse a server, turning a silent wrong answer into a loud port conflict.
+>
+> Follow-up if T079 shows the per-request CPU is a problem: pre-generated per-width variants, with
+> **flat** filenames — `deleteDesignFiles` sweeps with a non-recursive `list(designId)`, so
+> variants in nested folders would never be found and FR-019 would regress silently.
 
 **Checkpoint**: the storefront is live and every Principle II gate is enforced by CI.
 
@@ -292,6 +316,67 @@ insert with the anon key and confirm rejection.
 
 > **T082 is required, not optional.** The constitution requires designer-facing flows to be exercised at
 > mobile width before a feature counts as done, and SC-001 and SC-005 are otherwise never measured.
+
+---
+
+## Phase 7: Session lifecycle and cross-surface navigation (FR-001a, FR-002a)
+
+Added 2026-07-27. Both requirements came from **using** the application rather than from analysis, and
+both concern the designer's movement in and out of the authenticated surface — which the spec covered on
+the way in (FR-001) and not at all on the way out or back. See spec Clarifications, Session 2026-07-27.
+
+Independent of Phase 5 and Phase 6; can be done at any point after Phase 4.
+
+- [X] T083 Build sign-out (FR-001a): a server action calling `supabase.auth.signOut()`, a control in `app/(designer)/studio/layout.tsx` so it is reachable from every studio page, and a redirect to `/` afterwards
+- [X] T084 Build the owner-only return affordance on public pages (FR-002a) in `components/public/OwnerBar.tsx`, rendered from `app/(public)/page.tsx` and `app/(public)/d/[slug]/page.tsx`
+- [X] T085 [P] E2E test: signing out ends the session server-side — `/studio` redirects to sign-in afterwards, and the browser's retained cookies do not restore access (FR-001a)
+- [X] T086 [P] E2E test: the owner bar is absent for an unauthenticated request, and the anonymous response body is **unchanged** by the feature's existence (FR-002a constraints 1–3)
+
+> **T084's cost falls on visitors unless it is written carefully.** Public routes are deliberately
+> excluded from the middleware matcher so that no session work happens on a visitor's request. Calling
+> `getUser()` unconditionally during a public render would undo that for everyone, and `getUser()`
+> validates against the auth server rather than reading a cookie.
+>
+> So: check for the presence of a Supabase auth cookie first, and only resolve the session when one
+> exists. A visitor carries no such cookie and therefore pays nothing — which is also what makes
+> constraint 3 (an unauthenticated response is unchanged) true by construction rather than by care.
+
+> **T086 is the constitutional guard for this phase**, in the same sense T060 and T061 are for Phase 4.
+> FR-002a is a deliberate, narrow exception to "the public surface shows nothing about authentication",
+> and the only thing keeping it narrow is an assertion that an anonymous request sees no difference. The
+> existing draft-invisibility and view-only specs already make every assertion with no session, so they
+> measure the right surface — T086 adds the explicit before/after comparison.
+
+> ### ✓ Phase 7 verified (2026-07-27)
+>
+> All 4 tasks implemented; `typecheck`, `lint`, `build` and **32/32 end-to-end specs** pass on both
+> engines. The public-surface review was re-run as **Run 3** — required, because FR-002a puts a session
+> read on a public page for the first time. One existing item gained a new reason, three items were
+> added.
+>
+> **FR-002a's exception stays narrow because of one property, and it is tested rather than asserted.**
+> `session-lifecycle.spec.ts` captures the anonymous response, signs in, confirms the response *does*
+> change for her, signs out, and requires the anonymous response to come back **byte-identical**. A real
+> before/after inside one run, rather than a comparison against a build that no longer exists.
+>
+> **Two ordering rules are load-bearing here**, both for the same reason — nothing about who is asking
+> may reach a response that is refusing to say whether something exists:
+>
+> | Rule | What breaks without it |
+> |---|---|
+> | `isOwnerViewing()` runs **after** the not-found gate on `/d/{slug}` | The designer's 404 would carry an owner bar and a visitor's would not, so FR-023's "draft, deleted and nonexistent are indistinguishable" would quietly narrow to "…for anonymous requests only". Tested. |
+> | The cookie is checked **before** any session is resolved | `getUser()` validates against the auth server, so calling it unconditionally would put a network round trip on every visitor's request — undoing the middleware exclusion that keeps public routes session-free, on the very path SC-004 measures. |
+>
+> **A vacuous assertion was caught and fixed during this phase.** The sign-out test first read the
+> session from `localStorage`; `@supabase/ssr` stores it in a **cookie**, so the lookup returned null,
+> the revocation check sat behind an `if` that never executed, and the test passed having verified
+> nothing — the exact failure the control in T061 exists to prevent, reproduced by its own author. It
+> now reads the cookie and asserts extraction succeeded before using it. Checked adversarially: the
+> refresh token returns **200 before** sign-out and **400 after**, so sign-out revokes server-side and
+> the assertion can genuinely fail.
+
+**Checkpoint**: the designer can end her session, and can move between the two surfaces in both
+directions, with no change to what a visitor receives.
 
 ---
 
@@ -379,4 +464,5 @@ are cheap now and expensive to discover late.
 | 4 — US2 (P2) | T051–T063 | 13 |
 | 5 — US3 (P3) | T064–T075 | 12 |
 | 6 — Polish | T076–T082 | 7 |
-| **Total** | | **82** |
+| 7 — Session lifecycle & navigation | T083–T086 | 4 |
+| **Total** | | **86** |

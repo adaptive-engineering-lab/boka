@@ -58,7 +58,21 @@ export default defineConfig({
     // treats 404 as "not ready" and a storefront with nothing published legitimately
     // renders — but any route can 404 while the app is mid-boot. Sign-in always exists.
     url: `${BASE_URL}/auth/sign-in`,
-    reuseExistingServer: !process.env.CI,
+    /*
+     * Never reuse a running server for the production path.
+     *
+     * `reuseExistingServer: !process.env.CI` is the usual default and it is actively dangerous
+     * here. A leftover `next start` from an earlier session is indistinguishable from a fresh
+     * one, so Playwright silently skips the build and runs the whole suite — T060 and T061
+     * included — against **stale code**. That happened: the amended `/img` route was already
+     * written and the suite still saw the old 302 redirect. The failure mode that matters is
+     * the reverse, a mandatory privacy gate passing green against a build that no longer
+     * exists, and nothing would have flagged it.
+     *
+     * Refusing to reuse costs one `next build` per run and turns a silent wrong answer into a
+     * loud "port already in use". Dev iteration keeps the reuse behaviour.
+     */
+    reuseExistingServer: Boolean(process.env.E2E_DEV) && !process.env.CI,
     // A cold `next build` plus start needs more headroom than a dev boot.
     timeout: 240_000,
   },

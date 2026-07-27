@@ -3,12 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import { createClient } from '@/lib/supabase/server';
-import {
-  deleteDesignFiles,
-  deleteStoredObjects,
-  profilePhotoPath,
-  signDisplayUrl,
-} from '@/lib/images/storage';
+import { deleteDesignFiles, deleteStoredObjects, profilePhotoPath } from '@/lib/images/storage';
 import {
   discardProcessedPhotos,
   processPhotoBatch,
@@ -701,12 +696,6 @@ export async function getOwnProfile(): Promise<DesignerProfile | null> {
     bio: data.bio,
     profilePhotoPath: data.profile_photo_path,
   };
-}
-
-/** A short-lived signed URL for the owner's own avatar preview. */
-export async function getOwnProfilePhotoUrl(path: string | null): Promise<string | null> {
-  if (!path) return null;
-  return signDisplayUrl(path);
 }
 
 export async function updateOwnProfile(input: {

@@ -138,30 +138,103 @@ test('no public page offers a purchase, comment, or edit affordance', async ({ p
   }
 });
 
+test('image delivery honours the requested width and never hands out a storage URL', async ({
+  page,
+  request,
+}) => {
+  /*
+   * The regression guard for the amended `/img` decision (research D11).
+   *
+   * The route accepts a width in its path, and for the whole of the US2 increment it
+   * **ignored it** — every request redirected to the single stored 2048px variant, so a
+   * 640px grid tile downloaded a 2048px file. Nothing failed; it was simply slow, which is
+   * why it survived a full phase and why it needs a test rather than a comment. A future
+   * refactor that goes back to redirecting would be invisible without these two assertions.
+   */
+  const stamp = Date.now();
+  await signIn(page);
+  const id = await createDesign(page, { title: `Width Subject ${stamp}` });
+
+  try {
+    const slug = await readSlug(page, id);
+    await setPublished(page, id, true);
+
+    const body = await (await request.get(`/d/${slug}`)).text();
+    const photoId = /\/img\/([0-9a-f-]{36})\//.exec(body)?.[1];
+    expect(photoId, 'the detail page should serve images through /img').toBeTruthy();
+
+    const small = await request.get(`/img/${photoId}/320`, { maxRedirects: 0 });
+    const large = await request.get(`/img/${photoId}/1920`, { maxRedirects: 0 });
+
+    // Served directly — not a redirect. `maxRedirects: 0` means a 302 would show up here as
+    // a 302 rather than being quietly followed.
+    expect(small.status()).toBe(200);
+    expect(large.status()).toBe(200);
+    expect(small.headers()['content-type']).toContain('image/');
+
+    // No storage address of any kind reaches the client. This is stronger than the old
+    // "short-lived signature" property: there is now no window at all.
+    for (const response of [small, large]) {
+      expect(response.headers()['location']).toBeUndefined();
+      expect(response.headers()['content-type']).not.toContain('text/html');
+    }
+
+    // THE ASSERTION: the width actually changes the payload.
+    const smallBytes = (await small.body()).byteLength;
+    const largeBytes = (await large.body()).byteLength;
+    expect(smallBytes).toBeGreaterThan(0);
+    expect(
+      smallBytes,
+      `a 320px request returned ${smallBytes} bytes and a 1920px request ${largeBytes} — the width is being ignored`,
+    ).toBeLessThan(largeBytes);
+
+    // Conditional requests are honoured, so scrolling the grid does not re-encode.
+    const etag = small.headers()['etag'];
+    expect(etag).toBeTruthy();
+    const revalidated = await request.get(`/img/${photoId}/320`, {
+      headers: { 'If-None-Match': etag! },
+      maxRedirects: 0,
+    });
+    expect(revalidated.status()).toBe(304);
+
+    // And the 304 path is gated too. Unpublishing must produce the 404, NOT a 304 — a
+    // conditional request answered ahead of the publication check would confirm to anyone
+    // holding an old ETag that the image still exists (FR-023).
+    await setPublished(page, id, false);
+    const afterUnpublish = await request.get(`/img/${photoId}/320`, {
+      headers: { 'If-None-Match': etag! },
+      maxRedirects: 0,
+    });
+    expect(
+      afterUnpublish.status(),
+      'a conditional request must not short-circuit the publication gate',
+    ).toBe(404);
+  } finally {
+    await deleteDesign(page, id).catch(() => {});
+  }
+});
+
 test('the profile photo route serves the avatar and nothing else', async ({ request }) => {
   /*
-   * `/img/profile` is a public image surface added in this increment, so it needs its own
-   * line in the review rather than being covered by "all images go through /img".
+   * `/img/profile` is a public image surface, so it needs its own line in the review rather
+   * than being covered by "all images go through /img".
    *
    * It differs from `/img/{photoId}/{width}` in one deliberate way: **there is no
    * publication gate**, because the designer's name, bio and photo are public by definition
-   * (FR-028) — there is nothing to withhold. What must still hold is that it reads the path
-   * from `public_designer_profile` (which omits `email`), that it hands out only a
-   * short-lived signed URL, and that it cannot be steered at any other object.
+   * (FR-028) — there is nothing to withhold. What must still hold is that it reads its path
+   * from `public_designer_profile` (which omits `email`), that it serves the bytes rather
+   * than a storage address, and that it cannot be steered at any other object.
    */
   const response = await request.get('/img/profile', { maxRedirects: 0 });
 
-  // 302 when a photo is set, 404 when it is not. Both are correct; a 500 or a 200 with a
-  // body would mean it is serving bytes itself, which is not what it does.
-  expect([302, 404]).toContain(response.status());
+  // 200 with bytes when a photo is set, 404 when it is not. A 302 here would mean it had
+  // gone back to handing out a storage URL.
+  expect([200, 404]).toContain(response.status());
+  expect(response.headers()['location']).toBeUndefined();
 
-  if (response.status() === 302) {
-    const location = response.headers()['location'] ?? '';
-    // A signed URL into the private display bucket — never the originals bucket, and never
-    // an unsigned object URL.
-    expect(location).toContain('/storage/v1/object/sign/display/');
-    expect(location).not.toContain('/originals/');
-    expect(location).toMatch(/token=/);
+  if (response.status() === 200) {
+    expect(response.headers()['content-type']).toContain('image/');
+    expect((await response.body()).byteLength).toBeGreaterThan(0);
   }
 
   // The route takes no input, so there is no path to traverse — but a regression that added

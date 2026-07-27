@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getOwnPhotoForDelivery } from '@/lib/data/designer-designs';
-import { signDisplayUrl } from '@/lib/images/storage';
+import { renderDisplayImage } from '@/lib/images/deliver';
 
 /**
  * Owner-scoped image delivery for the studio.
@@ -25,6 +25,11 @@ import { signDisplayUrl } from '@/lib/images/storage';
  * This route reads the `photo` base table through the session client, so RLS answers the
  * ownership question (FR-003). It is under `/studio`, so middleware redirects an
  * unauthenticated request before it arrives, and RLS refuses it even if that fails.
+ *
+ * Like `/img`, it serves resized bytes rather than redirecting to a signed URL (research
+ * D11, as amended). The dashboard grid asks for 640px tiles, so without the resize it would
+ * pull a 2048px file per tile — the designer is on the same phone connection as everyone
+ * else.
  * ============================================================================
  */
 
@@ -41,7 +46,7 @@ function notFound(): NextResponse {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ photoId: string; width: string }> },
 ) {
   const { photoId, width } = await params;
@@ -53,17 +58,34 @@ export async function GET(
     return notFound();
   }
 
-  // RLS is the gate: a photo belonging to anyone else simply is not returned.
+  // RLS is the gate: a photo belonging to anyone else simply is not returned. It comes
+  // first, for the same reason as in the public route — a 304 answered ahead of it would
+  // confirm the photo exists to someone not entitled to know.
   const photo = await getOwnPhotoForDelivery(photoId);
   if (!photo) return notFound();
 
-  const signedUrl = await signDisplayUrl(photo.displayPath);
-  if (!signedUrl) return notFound();
+  const etag = `"${photoId}-${requestedWidth}"`;
+  if (request.headers.get('if-none-match') === etag) {
+    return new NextResponse(null, {
+      status: 304,
+      headers: { ETag: etag, 'Cache-Control': 'private, no-store' },
+    });
+  }
 
-  return NextResponse.redirect(signedUrl, {
-    status: 302,
-    // `private` matters here: this response is scoped to one signed-in designer and must
-    // never be held in a shared cache.
-    headers: { 'Cache-Control': 'private, no-store' },
+  const image = await renderDisplayImage(photo.displayPath, requestedWidth);
+  if (!image) return notFound();
+
+  return new NextResponse(new Uint8Array(image.bytes), {
+    status: 200,
+    headers: {
+      'Content-Type': image.contentType,
+      'Content-Length': String(image.bytes.byteLength),
+      ETag: etag,
+      // `no-store` rather than a max-age: this response is scoped to one signed-in designer
+      // and must never sit in any cache, shared or otherwise. The ETag still spares the
+      // re-encode on revalidation.
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
   });
 }

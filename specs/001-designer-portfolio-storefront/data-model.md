@@ -247,18 +247,27 @@ this table**; public reads go through `public_photos`.
 
 1. looks the photo up in `public_photos` — so an unpublished or deleted design yields nothing;
 2. returns an identical 404 if there is no row;
-3. otherwise issues a short-lived (60-second) signed URL for the display object and redirects to it.
+3. otherwise reads the display object and returns its **bytes, resized to the requested width**.
+
+**No signed URL is issued and no storage address reaches a client** (research D11, as amended
+2026-07-27). An earlier form of this route redirected to a 60-second signed URL; that address kept
+working for its full lifetime even if the design was unpublished a second later, and it ignored the width
+in the path, so a 640px grid tile fetched the stored 2048px variant. Serving the bytes closes both.
+
+Conditional requests are answered with an `ETag` of `{photo_id}-{width}` — but **only after step 1**. A
+`304` returned ahead of the publication check would confirm to anyone holding a stale ETag that a
+withdrawn image still exists, which is the inference FR-023 forbids.
 
 > **Why not a public `display` bucket.** A public bucket was the original design and it broke FR-023. RLS
 > gates the `photo` *table*, not the storage object, so once a design had been published its image URL
 > was disclosed permanently — moving the design back to draft removed it from the storefront while the
 > photograph itself stayed downloadable forever by anyone who had the link. The route re-checks
-> publication on every request, so revocation is immediate; the 60-second signature window is the only
-> residual exposure, and it cannot be renewed once the design is unpublished.
+> publication on every request, so revocation is immediate — and because the route returns the bytes
+> rather than an address, there is **no residual window at all**: nothing is left holding a key.
 >
-> The cost is that image requests hit the application rather than the CDN edge directly. At the launch
-> scale of 50 designs this is immaterial (Principle V), and the route response is cacheable with a short
-> TTL keyed on publication state.
+> The cost is that image requests hit the application rather than the CDN edge directly, and spend CPU
+> resizing. At the launch scale of 50 designs this is immaterial (Principle V); repeat views revalidate
+> to `304`, and a request at or above the stored width returns the stored bytes without re-encoding.
 
 **Deletion removes files, not just rows.** The `photo` row cascades when its design is deleted, but a
 cascade does not touch object storage. Deleting a design MUST also delete both the `originals/{design_id}/`
@@ -366,7 +375,8 @@ The complete list of what an unauthenticated caller can reach. Anything not on i
 | `public_categories` | view, read | Published-gated; `owner_id` absent |
 | `public_photos` | view, read | Published-gated; `original_path` absent |
 | `increment_design_view(slug)` | function, write | Increments one counter on a published row; returns nothing |
-| `/img/{photo_id}/{width}` | route, read | Re-checks publication, then 60s signed URL |
+| `/img/{photo_id}/{width}` | route, read | Re-checks publication, then returns resized bytes — no signed URL, no storage address |
+| `/img/profile` | route, read | The designer's avatar. No publication gate: `name`, `bio` and photo are public by definition (FR-028). Path from `public_designer_profile`, so `email` is unreachable |
 
 **No base table is anonymously readable. No table is anonymously writable.** Inquiry submission is
 server-mediated (FR-041c), so it does not appear here.

@@ -11,9 +11,7 @@ import type { PublicDesignSummary } from '@/lib/data/public-designs';
  * performance one. It deserves the explanation.
  *
  * Next's image optimiser fetches `src` server-side and caches the derived bytes, keyed on
- * the URL. The cache lifetime is taken from the upstream response — and upstream here is a
- * 302 into Supabase Storage, whose signed URLs carry cache headers this project does not
- * control. `minimumCacheTTL` sets a floor, not a ceiling.
+ * the URL. `minimumCacheTTL` sets a floor on that lifetime, not a ceiling.
  *
  * So an optimised tile could keep being served from `/_next/image?url=/img/...` after
  * `/img/...` itself has started answering 404. That is the public-bucket defect again, one
@@ -25,11 +23,12 @@ import type { PublicDesignSummary } from '@/lib/data/public-designs';
  * publication is re-checked every time and unpublishing takes effect at once. The blur
  * placeholder and the reserved dimensions are unaffected, so SC-012 still holds.
  *
- * **The cost is real and is not yet paid off.** `/img` currently redirects to the single
- * stored display variant (longest edge 2048px) regardless of the width in the path, so a
- * grid tile downloads a larger file than it needs. That is a live risk to SC-004's 3s LCP
- * budget and is measured in T079. The fix is to store per-width variants at upload or to
- * resize inside `/img` — not to reintroduce a cache in front of the gate.
+ * **And it now costs nothing.** `/img` used to ignore the width in its path and redirect to
+ * the single stored 2048px variant, so skipping the optimiser meant oversized tiles and a
+ * live risk to SC-004. That is fixed at the source: the route resizes to the requested width
+ * and serves the bytes itself (`lib/images/deliver.ts`, research D11 as amended). The
+ * optimiser has nothing left to add here except a cache in front of the gate, which is the
+ * one thing it must not do.
  * ============================================================================
  */
 export function PublicGrid({ designs }: { designs: PublicDesignSummary[] }) {

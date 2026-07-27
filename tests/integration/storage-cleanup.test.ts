@@ -18,9 +18,9 @@ import { adminClient, deleteDesign, hasLocalStack, insertDesign, warnIfSkipped }
  * `photo.design_id` cascades, so deleting a design removes its rows and the application
  * looks entirely correct: the design is gone from the dashboard, gone from the storefront,
  * gone from the database. **A row cascade does not touch object storage.** The photographs
- * stay in the bucket indefinitely, referenced by nothing, reachable by anyone who can
- * obtain a signed URL for the path — and since no row remains, nothing will ever find them
- * to clean up.
+ * stay in the bucket indefinitely, referenced by nothing — and since no row remains, nothing
+ * will ever find them to clean up. They are unreachable through the application, but they are
+ * still the designer's private work sitting in storage she believes she emptied.
  *
  * There is no user-visible symptom, which is exactly why it needs a test rather than a
  * code-review habit.
